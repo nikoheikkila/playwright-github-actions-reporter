@@ -68,6 +68,7 @@ class GitHubReporter implements Reporter {
   public async onEnd(result: FullResult): Promise<void> {
     await this.core.summary
       .addHeading("🎭 Playwright Test Report", 2)
+      .addHeading("Summary", 3)
       .write();
   }
 
@@ -181,7 +182,7 @@ describe('Playwright GitHub Actions Reporter', () => {
     reporter.onEnd(deps.result);
   }
 
-  test('displays report heading on summary', () => {
+  test('displays report heading', () => {
     run({
       config: createStubConfig(),
       suite: createStubSuite(),
@@ -190,4 +191,14 @@ describe('Playwright GitHub Actions Reporter', () => {
 
     expect(core.summary.stringify()).toContain('<h2>🎭 Playwright Test Report</h2>');
   });
+
+  test('displays "Summary" heading', () => {
+    run({
+      config: createStubConfig(),
+      suite: createStubSuite(),
+      result: createStubFullResult()
+    });
+
+    expect(core.summary.stringify()).toContain('<h3>Summary</h3>');
+  })
 })
