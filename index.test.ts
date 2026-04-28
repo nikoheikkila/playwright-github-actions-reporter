@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
+import {describe, test, expect, beforeEach} from 'bun:test';
 import type {
   FullConfig,
   FullResult,
@@ -14,10 +14,13 @@ import * as core from '@actions/core';
 import * as Buffer from "node:buffer";
 
 interface Summary {
-    addHeading(text: string, level: number): Summary;
-    addList(items: string[]): Summary;
-    write(): Promise<void>;
-    stringify(): string;
+  addHeading(text: string, level: number): Summary;
+
+  addList(items: string[]): Summary;
+
+  write(): Promise<void>;
+
+  stringify(): string;
 }
 
 interface Core {
@@ -74,6 +77,7 @@ class GitHubReporter implements Reporter {
   private files = 0;
   private total = 0;
   private passed = 0;
+  private failures = 0;
 
   constructor(core: Core) {
     this.core = core;
@@ -92,6 +96,7 @@ class GitHubReporter implements Reporter {
         `📁 <strong>${this.files}</strong> test files total`,
         `🧪 <strong>${this.total}</strong> test cases total`,
         `✅ <strong>${this.passed}</strong> tests passed`,
+        `❌ <strong>${this.failures}</strong> tests failed`,
       ])
       .write();
   }
@@ -119,7 +124,13 @@ class GitHubReporter implements Reporter {
   }
 
   public onTestEnd(test: TestCase, result: TestResult): void {
-    this.passed++;
+    if (result.status === "passed") {
+      this.passed++;
+    }
+
+    if (result.status === "failed") {
+      this.failures++;
+    }
   }
 
   printsToStdio(): boolean {
@@ -163,7 +174,9 @@ function createStubSuite(overrides: Partial<Suite> = {}): Suite {
     title: "",
     type: "root",
     allTests(): Array<TestCase> {
-      return [];
+      return [
+        createStubTestCase(),
+      ]
     },
     entries(): Array<TestCase | Suite> {
       throw new Error("Function not implemented.");
@@ -199,7 +212,9 @@ function createStubTestCase(overrides: Partial<TestCase> = {}): TestCase {
     },
     parent: createStubSuite(),
     repeatEachIndex: 0,
-    results: [],
+    results: [
+      createStubTestResult()
+    ],
     retries: 0,
     tags: [],
     timeout: 0,
@@ -215,6 +230,24 @@ function createStubTestCase(overrides: Partial<TestCase> = {}): TestCase {
       throw new Error("Function not implemented.");
     },
     ...overrides
+  };
+}
+
+function createStubTestResult(overrides: Partial<TestResult> = {}): TestResult {
+  return {
+    annotations: [],
+    attachments: [],
+    duration: 0,
+    errors: [],
+    parallelIndex: 0,
+    retry: 0,
+    startTime: new Date(),
+    status: "passed",
+    stderr: [],
+    stdout: [],
+    steps: [],
+    workerIndex: 0,
+    ...overrides,
   };
 }
 
@@ -244,30 +277,34 @@ describe('Playwright GitHub Actions Reporter', () => {
     }
 
     reporter.onEnd(deps.result);
+
+    return {
+      summary: core.summary.stringify()
+    }
   }
 
   test('displays report heading', () => {
-    run({
+    const {summary} = run({
       config: createStubConfig(),
       suite: createStubSuite(),
       result: createStubFullResult()
     });
 
-    expect(core.summary.stringify()).toContain('<h2>🎭 Playwright Test Report</h2>');
+    expect(summary).toContain('<h2>🎭 Playwright Test Report</h2>');
   });
 
   test('displays "Summary" heading', () => {
-    run({
+    const {summary} = run({
       config: createStubConfig(),
       suite: createStubSuite(),
       result: createStubFullResult()
     });
 
-    expect(core.summary.stringify()).toContain('<h3>Summary</h3>');
+    expect(summary).toContain('<h3>Summary</h3>');
   })
 
   test('displays total number of test files', () => {
-    run({
+    const {summary} = run({
       config: createStubConfig(),
       suite: createStubSuite({
         type: "root",
@@ -277,8 +314,8 @@ describe('Playwright GitHub Actions Reporter', () => {
             type: "project",
             title: "Playwright",
             suites: [
-              createStubSuite({ type: "file", title: "example1.spec.ts" }),
-              createStubSuite({ type: "file", title: "example2.spec.ts" }),
+              createStubSuite({type: "file", title: "example1.spec.ts"}),
+              createStubSuite({type: "file", title: "example2.spec.ts"}),
             ]
           })
         ]
@@ -286,11 +323,11 @@ describe('Playwright GitHub Actions Reporter', () => {
       result: createStubFullResult()
     });
 
-    expect(core.summary.stringify()).toContain('<li>📁 <strong>2</strong> test files total</li>');
+    expect(summary).toContain('<li>📁 <strong>2</strong> test files total</li>');
   })
 
   test('displays total number of test cases', () => {
-    run({
+    const {summary} = run({
       config: createStubConfig(),
       suite: createStubSuite({
         allTests(): TestCase[] {
@@ -303,23 +340,49 @@ describe('Playwright GitHub Actions Reporter', () => {
       result: createStubFullResult()
     });
 
-    expect(core.summary.stringify()).toContain('<li>🧪 <strong>2</strong> test cases total</li>');
+    expect(summary).toContain('<li>🧪 <strong>2</strong> test cases total</li>');
   });
 
   test('displays number of passed tests', () => {
-    run({
+    const {summary} = run({
       config: createStubConfig(),
       suite: createStubSuite({
         allTests(): TestCase[] {
           return [
-            createStubTestCase({ title: "first passing test"  }),
-            createStubTestCase({ title: "second passing test" }),
+            createStubTestCase({title: "first passing test"}),
+            createStubTestCase({title: "second passing test"}),
           ]
         }
       }),
       result: createStubFullResult()
     });
 
-    expect(core.summary.stringify()).toContain('<li>✅ <strong>2</strong> tests passed</li>')
+    expect(summary).toContain('<li>🧪 <strong>2</strong> test cases total</li>');
+    expect(summary).toContain('<li>✅ <strong>2</strong> tests passed</li>')
+  })
+
+  test('displays number of failed tests', () => {
+    const { summary } = run({
+      config: createStubConfig(),
+      suite: createStubSuite({
+        allTests(): TestCase[] {
+          return [
+            createStubTestCase({title: "first passing test"}),
+            createStubTestCase({
+              title: "first failing test", results: [
+                createStubTestResult({
+                  status: 'failed'
+                })
+              ]
+            }),
+          ]
+        }
+      }),
+      result: createStubFullResult()
+    });
+
+    expect(summary).toContain('<li>🧪 <strong>2</strong> test cases total</li>');
+    expect(summary).toContain('<li>✅ <strong>1</strong> tests passed</li>')
+    expect(summary).toContain('<li>❌ <strong>1</strong> tests failed</li>')
   })
 })
