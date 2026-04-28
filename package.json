@@ -1,0 +1,15 @@
+{
+  "name": "playwright-github-actions-reporter",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.1",
+    "@playwright/test": "^1.59.1"
+  }
+}
