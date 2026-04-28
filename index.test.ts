@@ -72,6 +72,7 @@ class GitHubReporter implements Reporter {
   private readonly core: Core;
 
   private files = 0;
+  private total = 0;
 
   constructor(core: Core) {
     this.core = core;
@@ -79,6 +80,7 @@ class GitHubReporter implements Reporter {
 
   onBegin(config: FullConfig, suite: Suite): void {
     this.files = suite.suites.reduce((total, suite) => total + suite.suites.length, 0);
+    this.total = suite.allTests().length;
   }
 
   public async onEnd(result: FullResult): Promise<void> {
@@ -86,7 +88,8 @@ class GitHubReporter implements Reporter {
       .addHeading("🎭 Playwright Test Report", 2)
       .addHeading("Summary", 3)
       .addList([
-        `📁 <strong>${this.files}</strong> test files total`
+        `📁 <strong>${this.files}</strong> test files total`,
+        `🧪 <strong>${this.total}</strong> test cases total`,
       ])
       .write();
   }
@@ -157,7 +160,7 @@ function createStubSuite(overrides: Partial<Suite> = {}): Suite {
     title: "",
     type: "root",
     allTests(): Array<TestCase> {
-      throw new Error("Function not implemented.");
+      return [];
     },
     entries(): Array<TestCase | Suite> {
       throw new Error("Function not implemented.");
@@ -178,6 +181,36 @@ function createStubFullResult(overrides: Partial<FullResult> = {}): FullResult {
     startTime: new Date(),
     duration: 1000,
     ...overrides,
+  };
+}
+
+function createStubTestCase(): TestCase {
+  return {
+    ok: function (): boolean {
+      throw new Error("Function not implemented.");
+    },
+    outcome: function (): "skipped" | "expected" | "unexpected" | "flaky" {
+      throw new Error("Function not implemented.");
+    },
+    titlePath: function (): Array<string> {
+      throw new Error("Function not implemented.");
+    },
+    annotations: [],
+    expectedStatus: "passed",
+    id: "",
+    location: {
+      column: 0,
+      file: "",
+      line: 0
+    },
+    parent: createStubSuite(),
+    repeatEachIndex: 0,
+    results: [],
+    retries: 0,
+    tags: [],
+    timeout: 0,
+    title: "",
+    type: "test"
   };
 }
 
@@ -243,4 +276,21 @@ describe('Playwright GitHub Actions Reporter', () => {
 
     expect(core.summary.stringify()).toContain('<li>📁 <strong>2</strong> test files total</li>');
   })
+
+  test('displays total number of test cases', () => {
+    run({
+      config: createStubConfig(),
+      suite: createStubSuite({
+        allTests(): TestCase[] {
+          return [
+            createStubTestCase(),
+            createStubTestCase(),
+          ]
+        }
+      }),
+      result: createStubFullResult()
+    });
+
+    expect(core.summary.stringify()).toContain(`<li>🧪 <strong>2</strong> test cases total</li>`);
+  });
 })
