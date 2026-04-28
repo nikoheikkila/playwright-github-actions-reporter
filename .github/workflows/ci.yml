@@ -1,0 +1,28 @@
+name: Acceptance Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit_tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Install dependencies
+        uses: ./.github/actions/install-dependencies
+
+      - name: Lint code style
+        run: task lint
+
+      - name: Run unit tests
+        run: task test
