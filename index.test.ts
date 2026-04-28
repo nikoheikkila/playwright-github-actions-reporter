@@ -12,6 +12,7 @@ import type {
 } from "@playwright/test/reporter";
 import * as core from '@actions/core';
 import * as Buffer from "node:buffer";
+import {summary} from "@actions/core";
 
 interface Summary {
   addHeading(text: string, level: number): Summary;
@@ -79,6 +80,7 @@ class GitHubReporter implements Reporter {
   private passed = 0;
   private failures = 0;
   private timeouts = 0;
+  private skipped = 0;
 
   constructor(core: Core) {
     this.core = core;
@@ -99,6 +101,7 @@ class GitHubReporter implements Reporter {
         `✅ <strong>${this.passed}</strong> tests passed`,
         `❌ <strong>${this.failures}</strong> tests failed`,
         `⏰ <strong>${this.timeouts}</strong> tests timed out`,
+        `⚠️ <strong>${this.skipped}</strong> tests skipped`,
       ])
       .write();
   }
@@ -136,6 +139,10 @@ class GitHubReporter implements Reporter {
 
     if (result.status === "timedOut") {
       this.timeouts++;
+    }
+
+    if (result.status === "skipped") {
+      this.skipped++;
     }
   }
 
@@ -423,5 +430,46 @@ describe('Playwright GitHub Actions Reporter', () => {
     expect(summary).toContain('<li>✅ <strong>1</strong> tests passed</li>')
     expect(summary).toContain('<li>❌ <strong>1</strong> tests failed</li>')
     expect(summary).toContain('<li>⏰ <strong>1</strong> tests timed out</li>')
+  })
+
+  test('list number of skipped tests', () => {
+    const { summary } = run({
+      config: createStubConfig(),
+      suite: createStubSuite({
+        allTests(): TestCase[] {
+          return [
+            createStubTestCase({ title: "first passing test" }),
+            createStubTestCase({
+              title: "first failing test", results: [
+                createStubTestResult({
+                  status: 'failed'
+                })
+              ]
+            }),
+            createStubTestCase({
+              title: "first timed out test", results: [
+                createStubTestResult({
+                  status: 'timedOut'
+                })
+              ]
+            }),
+            createStubTestCase({
+              title: "first skipped test", results: [
+                createStubTestResult({
+                  status: 'skipped'
+                })
+              ]
+            }),
+          ]
+        }
+      }),
+      result: createStubFullResult()
+    });
+
+    expect(summary).toContain('<li>🧪 <strong>4</strong> test cases total</li>');
+    expect(summary).toContain('<li>✅ <strong>1</strong> tests passed</li>')
+    expect(summary).toContain('<li>❌ <strong>1</strong> tests failed</li>')
+    expect(summary).toContain('<li>⏰ <strong>1</strong> tests timed out</li>')
+    expect(summary).toContain('<li>⚠️ <strong>1</strong> tests skipped</li>');
   })
 })
