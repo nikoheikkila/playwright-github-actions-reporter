@@ -15,6 +15,7 @@ import * as Buffer from "node:buffer";
 
 interface Summary {
     addHeading(text: string, level: number): Summary;
+    addList(items: string[]): Summary;
     write(): Promise<void>;
     stringify(): string;
 }
@@ -23,7 +24,7 @@ interface Core {
   summary: Summary;
 }
 
-class FakeSummary {
+class FakeSummary implements Summary {
   private summaryBuffer: string;
   private storedSummary: string;
 
@@ -32,8 +33,20 @@ class FakeSummary {
     this.storedSummary = "";
   }
 
-  public addHeading(text: string, level: number): FakeSummary {
+  public addHeading(text: string, level: number): Summary {
     this.summaryBuffer += `<h${level}>${text}</h${level}>`
+
+    return this;
+  }
+
+  public addList(items: string[]): Summary {
+    this.summaryBuffer += "<ul>"
+
+    for (const item of items) {
+      this.summaryBuffer += `<li>${item}</li>`;
+    }
+
+    this.summaryBuffer += "</ul>"
 
     return this;
   }
@@ -58,17 +71,23 @@ class FakeCore implements Core {
 class GitHubReporter implements Reporter {
   private readonly core: Core;
 
+  private files = 0;
+
   constructor(core: Core) {
     this.core = core;
   }
 
   onBegin(config: FullConfig, suite: Suite): void {
+    this.files = suite.suites.reduce((total, suite) => total + suite.suites.length, 0);
   }
 
   public async onEnd(result: FullResult): Promise<void> {
     await this.core.summary
       .addHeading("🎭 Playwright Test Report", 2)
       .addHeading("Summary", 3)
+      .addList([
+        `📁 <strong>${this.files}</strong> test files total`
+      ])
       .write();
   }
 
@@ -200,5 +219,28 @@ describe('Playwright GitHub Actions Reporter', () => {
     });
 
     expect(core.summary.stringify()).toContain('<h3>Summary</h3>');
+  })
+
+  test('displays total number of test files', () => {
+    run({
+      config: createStubConfig(),
+      suite: createStubSuite({
+        type: "root",
+        title: "Tests",
+        suites: [
+          createStubSuite({
+            type: "project",
+            title: "Playwright",
+            suites: [
+              createStubSuite({ type: "file", title: "example1.spec.ts" }),
+              createStubSuite({ type: "file", title: "example2.spec.ts" }),
+            ]
+          })
+        ]
+      }),
+      result: createStubFullResult()
+    });
+
+    expect(core.summary.stringify()).toContain('<li>📁 <strong>2</strong> test files total</li>');
   })
 })
