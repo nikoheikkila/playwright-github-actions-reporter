@@ -73,6 +73,7 @@ class GitHubReporter implements Reporter {
 
   private files = 0;
   private total = 0;
+  private passed = 0;
 
   constructor(core: Core) {
     this.core = core;
@@ -90,6 +91,7 @@ class GitHubReporter implements Reporter {
       .addList([
         `📁 <strong>${this.files}</strong> test files total`,
         `🧪 <strong>${this.total}</strong> test cases total`,
+        `✅ <strong>${this.passed}</strong> tests passed`,
       ])
       .write();
   }
@@ -116,7 +118,8 @@ class GitHubReporter implements Reporter {
   onTestBegin(test: TestCase, result: TestResult): void {
   }
 
-  onTestEnd(test: TestCase, result: TestResult): void {
+  public onTestEnd(test: TestCase, result: TestResult): void {
+    this.passed++;
   }
 
   printsToStdio(): boolean {
@@ -184,17 +187,8 @@ function createStubFullResult(overrides: Partial<FullResult> = {}): FullResult {
   };
 }
 
-function createStubTestCase(): TestCase {
+function createStubTestCase(overrides: Partial<TestCase> = {}): TestCase {
   return {
-    ok: function (): boolean {
-      throw new Error("Function not implemented.");
-    },
-    outcome: function (): "skipped" | "expected" | "unexpected" | "flaky" {
-      throw new Error("Function not implemented.");
-    },
-    titlePath: function (): Array<string> {
-      throw new Error("Function not implemented.");
-    },
     annotations: [],
     expectedStatus: "passed",
     id: "",
@@ -210,7 +204,17 @@ function createStubTestCase(): TestCase {
     tags: [],
     timeout: 0,
     title: "",
-    type: "test"
+    type: "test",
+    ok(): boolean {
+      throw new Error("Function not implemented.");
+    },
+    outcome(): "skipped" | "expected" | "unexpected" | "flaky" {
+      throw new Error("Function not implemented.");
+    },
+    titlePath(): Array<string> {
+      throw new Error("Function not implemented.");
+    },
+    ...overrides
   };
 }
 
@@ -231,6 +235,14 @@ describe('Playwright GitHub Actions Reporter', () => {
 
   const run = (deps: RunDependencies) => {
     reporter.onBegin(deps.config, deps.suite);
+
+    for (const testCase of deps.suite.allTests()) {
+      const result = testCase.results.at(0)!;
+
+      reporter.onTestBegin(testCase, result)
+      reporter.onTestEnd(testCase, result);
+    }
+
     reporter.onEnd(deps.result);
   }
 
@@ -291,6 +303,23 @@ describe('Playwright GitHub Actions Reporter', () => {
       result: createStubFullResult()
     });
 
-    expect(core.summary.stringify()).toContain(`<li>🧪 <strong>2</strong> test cases total</li>`);
+    expect(core.summary.stringify()).toContain('<li>🧪 <strong>2</strong> test cases total</li>');
   });
+
+  test('displays number of passed tests', () => {
+    run({
+      config: createStubConfig(),
+      suite: createStubSuite({
+        allTests(): TestCase[] {
+          return [
+            createStubTestCase({ title: "first passing test"  }),
+            createStubTestCase({ title: "second passing test" }),
+          ]
+        }
+      }),
+      result: createStubFullResult()
+    });
+
+    expect(core.summary.stringify()).toContain('<li>✅ <strong>2</strong> tests passed</li>')
+  })
 })
