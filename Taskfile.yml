@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+
+  install:
+    sources:
+      - package.json
+    generates:
+      - bun.lock
+    cmd: bun install --frozen-lockfile
+
+  test:
+    cmd: bun test --coverage
+
+  test:watch:
+    interactive: true
+    cmd: bun test --watch
