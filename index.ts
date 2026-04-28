@@ -1,1 +1,1 @@
-console.log("Hello via Bun!");
+export { GitHubReporter } from "./src/reporter.ts";

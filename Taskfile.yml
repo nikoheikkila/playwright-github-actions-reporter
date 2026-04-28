@@ -17,3 +17,15 @@ tasks:
   test:watch:
     interactive: true
     cmd: bun test --watch
+
+  lint:
+    sources:
+      - ./src/**/*.ts
+      - ./test/**/*.ts
+    cmd: bunx biome check .
+
+  format:
+    sources:
+      - ./src/**/*.ts
+      - ./test/**/*.ts
+    cmd: bunx biome check --write .

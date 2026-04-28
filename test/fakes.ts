@@ -1,42 +1,40 @@
-
-
-import type {Core, Summary} from "../src/interface.ts";
+import type { Core, Summary } from "../src/interface.ts";
 
 export class FakeSummary implements Summary {
-  private summaryBuffer = "";
-  private storedSummary = "";
+	private summaryBuffer = "";
+	private storedSummary = "";
 
-  public addHeading(text: string, level: number): Summary {
-    this.summaryBuffer += `<h${level}>${text}</h${level}>`
+	public addHeading(text: string, level: number): Summary {
+		this.summaryBuffer += `<h${level}>${text}</h${level}>`;
 
-    return this;
-  }
+		return this;
+	}
 
-  public addList(items: string[]): Summary {
-    this.summaryBuffer += "<ul>"
+	public addList(items: string[]): Summary {
+		this.summaryBuffer += "<ul>";
 
-    for (const item of items) {
-      this.summaryBuffer += `<li>${item}</li>`;
-    }
+		for (const item of items) {
+			this.summaryBuffer += `<li>${item}</li>`;
+		}
 
-    this.summaryBuffer += "</ul>"
+		this.summaryBuffer += "</ul>";
 
-    return this;
-  }
+		return this;
+	}
 
-  public async write(): Promise<void> {
-    this.storedSummary = this.summaryBuffer;
-  }
+	public async write(): Promise<void> {
+		this.storedSummary = this.summaryBuffer;
+	}
 
-  public stringify(): string {
-    return this.storedSummary;
-  }
+	public stringify(): string {
+		return this.storedSummary;
+	}
 }
 
 export class FakeCore implements Core {
-  public readonly summary: Summary;
+	public readonly summary: Summary;
 
-  constructor() {
-    this.summary = new FakeSummary();
-  }
+	constructor() {
+		this.summary = new FakeSummary();
+	}
 }

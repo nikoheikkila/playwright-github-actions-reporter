@@ -1,13 +1,13 @@
 export interface Summary {
-  addHeading(text: string, level: number): Summary;
+	addHeading(text: string, level: number): Summary;
 
-  addList(items: string[]): Summary;
+	addList(items: string[]): Summary;
 
-  write(): Promise<void>;
+	write(): Promise<void>;
 
-  stringify(): string;
+	stringify(): string;
 }
 
 export interface Core {
-  summary: Summary;
+	summary: Summary;
 }
