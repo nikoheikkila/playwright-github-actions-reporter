@@ -103,6 +103,7 @@ class GitHubReporter implements Reporter {
         `⏰ <strong>${this.timeouts}</strong> tests timed out`,
         `⚠️ <strong>${this.skipped}</strong> tests skipped`,
       ])
+      .addHeading("Details", 3)
       .write();
   }
 
@@ -471,5 +472,15 @@ describe('Playwright GitHub Actions Reporter', () => {
     expect(summary).toContain('<li>❌ <strong>1</strong> tests failed</li>')
     expect(summary).toContain('<li>⏰ <strong>1</strong> tests timed out</li>')
     expect(summary).toContain('<li>⚠️ <strong>1</strong> tests skipped</li>');
+  })
+
+  test('displays "Details" heading', () => {
+    const {summary} = run({
+      config: createStubConfig(),
+      suite: createStubSuite(),
+      result: createStubFullResult()
+    });
+
+    expect(summary).toContain('<h3>Details</h3>');
   })
 })
