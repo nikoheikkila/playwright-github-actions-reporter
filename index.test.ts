@@ -78,6 +78,7 @@ class GitHubReporter implements Reporter {
   private total = 0;
   private passed = 0;
   private failures = 0;
+  private timeouts = 0;
 
   constructor(core: Core) {
     this.core = core;
@@ -97,6 +98,7 @@ class GitHubReporter implements Reporter {
         `🧪 <strong>${this.total}</strong> test cases total`,
         `✅ <strong>${this.passed}</strong> tests passed`,
         `❌ <strong>${this.failures}</strong> tests failed`,
+        `⏰ <strong>${this.timeouts}</strong> tests timed out`,
       ])
       .write();
   }
@@ -130,6 +132,10 @@ class GitHubReporter implements Reporter {
 
     if (result.status === "failed") {
       this.failures++;
+    }
+
+    if (result.status === "timedOut") {
+      this.timeouts++;
     }
   }
 
@@ -384,5 +390,38 @@ describe('Playwright GitHub Actions Reporter', () => {
     expect(summary).toContain('<li>🧪 <strong>2</strong> test cases total</li>');
     expect(summary).toContain('<li>✅ <strong>1</strong> tests passed</li>')
     expect(summary).toContain('<li>❌ <strong>1</strong> tests failed</li>')
+  })
+
+  test('list number of timed out tests', () => {
+    const { summary } = run({
+      config: createStubConfig(),
+      suite: createStubSuite({
+        allTests(): TestCase[] {
+          return [
+            createStubTestCase({ title: "first passing test" }),
+            createStubTestCase({
+              title: "first failing test", results: [
+                createStubTestResult({
+                  status: 'failed'
+                })
+              ]
+            }),
+            createStubTestCase({
+              title: "first timed out test", results: [
+                createStubTestResult({
+                  status: 'timedOut'
+                })
+              ]
+            }),
+          ]
+        }
+      }),
+      result: createStubFullResult()
+    });
+
+    expect(summary).toContain('<li>🧪 <strong>3</strong> test cases total</li>');
+    expect(summary).toContain('<li>✅ <strong>1</strong> tests passed</li>')
+    expect(summary).toContain('<li>❌ <strong>1</strong> tests failed</li>')
+    expect(summary).toContain('<li>⏰ <strong>1</strong> tests timed out</li>')
   })
 })
