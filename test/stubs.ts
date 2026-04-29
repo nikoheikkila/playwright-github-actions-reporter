@@ -1,4 +1,4 @@
-import type { FullConfig, FullProject, FullResult, Suite, TestCase, TestResult } from "@playwright/test/reporter";
+import type { FullConfig, FullProject, Suite, TestCase, TestResult } from "@playwright/test/reporter";
 
 export function createStubConfig(overrides: Partial<FullConfig> = {}): FullConfig {
 	return {
@@ -46,15 +46,6 @@ export function createStubSuite(overrides: Partial<Suite> = {}): Suite {
 		titlePath(): string[] {
 			return [];
 		},
-		...overrides,
-	};
-}
-
-export function createStubFullResult(overrides: Partial<FullResult> = {}): FullResult {
-	return {
-		status: "passed",
-		startTime: new Date(),
-		duration: 1000,
 		...overrides,
 	};
 }

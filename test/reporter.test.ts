@@ -1,15 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { FullConfig, FullResult, Suite, TestCase, TestResult } from "@playwright/test/reporter";
+import type { FullConfig, Suite, TestCase, TestResult } from "@playwright/test/reporter";
 import type { Core } from "../src/interface.ts";
 import { GitHubReporter } from "../src/reporter.ts";
 import { FakeCore } from "./fakes.ts";
-import {
-	createStubConfig,
-	createStubFullResult,
-	createStubSuite,
-	createStubTestCase,
-	createStubTestResult,
-} from "./stubs.ts";
+import { createStubConfig, createStubSuite, createStubTestCase, createStubTestResult } from "./stubs.ts";
 
 type Status = TestResult["status"];
 describe("Playwright GitHub Actions Reporter", () => {
@@ -18,7 +12,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 	interface RunDependencies {
 		config: FullConfig;
-		result: FullResult;
 		suite: Suite;
 	}
 
@@ -27,7 +20,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		reporter = new GitHubReporter(core);
 	});
 
-	const runTests = async ({ config, result, suite }: RunDependencies) => {
+	const runTests = async ({ config, suite }: RunDependencies) => {
 		reporter.onBegin(config, suite);
 
 		for (const testCase of suite.allTests()) {
@@ -36,7 +29,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 			reporter.onTestEnd(testCase, result);
 		}
 
-		await reporter.onEnd(result);
+		reporter.onEnd();
 		await reporter.onExit();
 
 		return {
@@ -49,7 +42,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const { summary } = await runTests({
 				config: createStubConfig(),
 				suite: createStubSuite(),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<h2>🎭 Playwright Test Report</h2>");
@@ -59,7 +51,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const { summary } = await runTests({
 				config: createStubConfig(),
 				suite: createStubSuite(),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<h3>Summary</h3>");
@@ -69,7 +60,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const { summary } = await runTests({
 				config: createStubConfig(),
 				suite: createStubSuite(),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toMatch(/<ul><li>.+<\/li><\/ul>/);
@@ -92,7 +82,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 						}),
 					],
 				}),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<li>📁 <strong>2</strong> test files total</li>");
@@ -106,7 +95,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 						return [createStubTestCase(), createStubTestCase()];
 					},
 				}),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<li>🧪 <strong>2</strong> test cases total</li>");
@@ -123,7 +111,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 						];
 					},
 				}),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<li>🧪 <strong>2</strong> test cases total</li>");
@@ -148,7 +135,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 						];
 					},
 				}),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<li>🧪 <strong>2</strong> test cases total</li>");
@@ -182,7 +168,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 						];
 					},
 				}),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<li>🧪 <strong>3</strong> test cases total</li>");
@@ -225,7 +210,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 						];
 					},
 				}),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<li>🧪 <strong>4</strong> test cases total</li>");
@@ -241,7 +225,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const { summary } = await runTests({
 				config: createStubConfig(),
 				suite: createStubSuite(),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toContain("<h3>Details</h3>");
@@ -251,7 +234,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const { summary } = await runTests({
 				config: createStubConfig(),
 				suite: createStubSuite(),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toMatch(
@@ -263,7 +245,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const { summary } = await runTests({
 				config: createStubConfig(),
 				suite: createStubSuite(),
-				result: createStubFullResult(),
 			});
 
 			expect(summary).toMatch(/<details><summary>Show Test Cases<\/summary>.+<\/details>/);
@@ -284,7 +265,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 							];
 						},
 					}),
-					result: createStubFullResult(),
 				});
 
 				expect(summary).toMatch(/<td>Tests » example.spec.ts » example test<\/td>/);
@@ -319,7 +299,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 							];
 						},
 					}),
-					result: createStubFullResult(),
 				});
 
 				expect(summary).toMatch(new RegExp(`<td>${expected}</td>`));
@@ -343,7 +322,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 							];
 						},
 					}),
-					result: createStubFullResult(),
 				});
 
 				expect(summary).toMatch(/<td>10.6s<\/td>/);
@@ -367,7 +345,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 							];
 						},
 					}),
-					result: createStubFullResult(),
 				});
 
 				expect(summary).toMatch(/<td>None<\/td>/);
@@ -389,7 +366,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 							];
 						},
 					}),
-					result: createStubFullResult(),
 				});
 
 				expect(summary).toMatch(/<td>1<\/td>/);
@@ -409,7 +385,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 							];
 						},
 					}),
-					result: createStubFullResult(),
 				});
 
 				expect(summary).toMatch(/<td>None<\/td>/);
@@ -427,7 +402,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 							];
 						},
 					}),
-					result: createStubFullResult(),
 				});
 
 				expect(summary).toMatch(/<td>@E2E<\/td>/);

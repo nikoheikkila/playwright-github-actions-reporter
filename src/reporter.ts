@@ -1,20 +1,11 @@
 import type { FullConfig, FullResult, Reporter, Suite, TestCase, TestResult } from "@playwright/test/reporter";
 
-import type { Core, SummaryTableRow } from "./interface.ts";
-
-interface StoredResult {
-	titlePath: string;
-	status: string;
-	duration: string;
-	retries: string;
-	tags: string;
-}
-
-type ResultMap = Map<TestCase["id"], StoredResult>;
+import type { Core, ResultMap, Summary } from "./interface.ts";
 
 export class GitHubReporter implements Reporter {
 	private readonly core: Core;
 	private readonly results: ResultMap;
+	private readonly summary: Summary;
 
 	private files = 0;
 	private total = 0;
@@ -26,51 +17,13 @@ export class GitHubReporter implements Reporter {
 	constructor(core: Core) {
 		this.core = core;
 		this.results = new Map();
+		this.summary = core.summary;
 	}
 
 	public onBegin(_config: FullConfig, suite: Suite): void {
 		this.files = suite.suites.reduce((total, suite) => total + suite.suites.length, 0);
 		this.total = suite.allTests().length;
-	}
-
-	public async onEnd(_result: FullResult): Promise<void> {
-		const tableRows: SummaryTableRow[] = [
-			this.columns,
-			...this.results
-				.values()
-				.map((result) => [result.titlePath, result.status, result.duration, result.retries, result.tags]),
-		];
-
-		await this.core.summary
-			.addHeading("🎭 Playwright Test Report", 2)
-			.addHeading("Summary", 3)
-			.addList([
-				`📁 <strong>${this.files}</strong> test files total`,
-				`🧪 <strong>${this.total}</strong> test cases total`,
-				`✅ <strong>${this.passed}</strong> tests passed`,
-				`❌ <strong>${this.failures}</strong> tests failed`,
-				`⏰ <strong>${this.timeouts}</strong> tests timed out`,
-				`⚠️ <strong>${this.skipped}</strong> tests skipped`,
-			])
-			.addHeading("Details", 3)
-			.addRaw("<details><summary>Show Test Cases</summary>")
-			.addTable(tableRows)
-			.addRaw("</details>")
-			.write();
-	}
-
-	public async onExit(): Promise<void> {
-		return;
-	}
-
-	private get columns() {
-		return [
-			{ data: "Test", header: true },
-			{ data: "Result", header: true },
-			{ data: "Duration", header: true },
-			{ data: "Retries", header: true },
-			{ data: "Tags", header: true },
-		];
+		this.summary.addHeading("🎭 Playwright Test Report", 2).addHeading("Summary", 3);
 	}
 
 	public onTestEnd(test: TestCase, result: TestResult): void {
@@ -101,6 +54,34 @@ export class GitHubReporter implements Reporter {
 
 	public printsToStdio(): boolean {
 		return true;
+	}
+
+	public onEnd(): void {
+		this.collectSummaryResults();
+		this.collectDetailedResults();
+	}
+
+	public async onExit(): Promise<void> {
+		await this.summary.write();
+	}
+
+	private collectSummaryResults() {
+		return this.summary.addList([
+			`📁 <strong>${this.files}</strong> test files total`,
+			`🧪 <strong>${this.total}</strong> test cases total`,
+			`✅ <strong>${this.passed}</strong> tests passed`,
+			`❌ <strong>${this.failures}</strong> tests failed`,
+			`⏰ <strong>${this.timeouts}</strong> tests timed out`,
+			`⚠️ <strong>${this.skipped}</strong> tests skipped`,
+		]);
+	}
+
+	private collectDetailedResults() {
+		this.summary
+			.addHeading("Details", 3)
+			.addRaw("<details><summary>Show Test Cases</summary>")
+			.addTable([this.columns, ...this.dataRows])
+			.addRaw("</details>");
 	}
 
 	private titlePath(test: TestCase) {
@@ -134,5 +115,21 @@ export class GitHubReporter implements Reporter {
 
 	private tags(testCase: TestCase) {
 		return testCase.tags.length > 0 ? testCase.tags.join(", ") : "None";
+	}
+
+	private get dataRows() {
+		return this.results
+			.values()
+			.map((result) => [result.titlePath, result.status, result.duration, result.retries, result.tags]);
+	}
+
+	private get columns() {
+		return [
+			{ data: "Test", header: true },
+			{ data: "Result", header: true },
+			{ data: "Duration", header: true },
+			{ data: "Retries", header: true },
+			{ data: "Tags", header: true },
+		];
 	}
 }
