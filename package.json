@@ -19,6 +19,6 @@
 		"prepare": "husky"
 	},
 	"lint-staged": {
-		"**/*.ts": "bunx biome check --write"
+		"**/*.([jt]s|json)": "bunx biome check --write"
 	}
 }
