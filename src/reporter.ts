@@ -10,9 +10,11 @@ interface StoredResult {
 	tags: string;
 }
 
+type ResultMap = Map<TestCase["id"], StoredResult>;
+
 export class GitHubReporter implements Reporter {
 	private readonly core: Core;
-	private readonly results: StoredResult[] = [];
+	private readonly results: ResultMap;
 
 	private files = 0;
 	private total = 0;
@@ -23,6 +25,7 @@ export class GitHubReporter implements Reporter {
 
 	constructor(core: Core) {
 		this.core = core;
+		this.results = new Map();
 	}
 
 	public onBegin(_config: FullConfig, suite: Suite): void {
@@ -33,7 +36,9 @@ export class GitHubReporter implements Reporter {
 	public async onEnd(_result: FullResult): Promise<void> {
 		const tableRows: SummaryTableRow[] = [
 			this.columns,
-			...this.results.map((result) => [result.titlePath, result.status, result.duration, result.retries, result.tags]),
+			...this.results
+				.values()
+				.map((result) => [result.titlePath, result.status, result.duration, result.retries, result.tags]),
 		];
 
 		await this.core.summary
@@ -85,7 +90,7 @@ export class GitHubReporter implements Reporter {
 			this.skipped++;
 		}
 
-		this.results.push({
+		this.results.set(test.id, {
 			titlePath: this.titlePath(test),
 			status: this.status(result),
 			duration: this.duration(result),
