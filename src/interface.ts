@@ -2,6 +2,7 @@ import type { TestCase } from "@playwright/test/reporter";
 
 export interface Core {
 	summary: Summary;
+	info(message: string): void;
 }
 
 export interface Summary {

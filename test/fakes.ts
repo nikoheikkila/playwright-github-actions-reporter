@@ -70,8 +70,14 @@ export class FakeSummary implements Summary {
 
 export class FakeCore implements Core {
 	public readonly summary: Summary;
+	public readonly infos: string[];
 
 	constructor() {
 		this.summary = new FakeSummary();
+		this.infos = [];
+	}
+
+	public info(message: string): void {
+		this.infos.push(message);
 	}
 }

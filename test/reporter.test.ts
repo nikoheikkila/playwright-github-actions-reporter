@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { FullConfig, Suite, TestCase, TestResult } from "@playwright/test/reporter";
-import type { Core } from "../src/interface.ts";
 import { GitHubReporter } from "../src/reporter.ts";
 import { FakeCore } from "./fakes.ts";
 import { createStubConfig, createStubSuite, createStubTestCase, createStubTestResult } from "./stubs.ts";
@@ -8,7 +7,7 @@ import { createStubConfig, createStubSuite, createStubTestCase, createStubTestRe
 type Status = TestResult["status"];
 
 describe("Playwright GitHub Actions Reporter", () => {
-	let core: Core;
+	let core: FakeCore;
 	let reporter: GitHubReporter;
 
 	interface RunDependencies {
@@ -484,6 +483,21 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 				expect(summary).toMatch(/<td>@E2E<\/td>/);
 			});
+		});
+	});
+
+	describe("Logging", () => {
+		test("logs info when test suite begins", async () => {
+			await runTests({
+				config: createStubConfig({ workers: 2 }),
+				suite: createStubSuite({
+					allTests(): TestCase[] {
+						return [createStubTestCase(), createStubTestCase()];
+					},
+				}),
+			});
+
+			expect(core.infos).toContainEqual(expect.stringContaining("Starting a test run with 2 workers and 2 tests"));
 		});
 	});
 });

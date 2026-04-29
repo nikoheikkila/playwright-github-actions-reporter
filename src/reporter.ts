@@ -20,10 +20,12 @@ export class GitHubReporter implements Reporter {
 		this.summary = core.summary;
 	}
 
-	public onBegin(_config: FullConfig, suite: Suite): void {
+	public onBegin(config: FullConfig, suite: Suite): void {
 		this.files = suite.suites.reduce((total, suite) => total + suite.suites.length, 0);
 		this.total = suite.allTests().length;
 		this.summary.addHeading("🎭 Playwright Test Report", 2).addHeading("Summary", 3);
+
+		this.core.info(`Starting a test run with ${config.workers} workers and ${this.total} tests`);
 	}
 
 	public onTestEnd(test: TestCase, result: TestResult): void {
