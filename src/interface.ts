@@ -7,6 +7,7 @@ export interface Core {
 	info(message: string): void;
 	notice(message: string): void;
 	error(message: string): void;
+	setFailed(message: string): never;
 }
 
 export interface Summary {

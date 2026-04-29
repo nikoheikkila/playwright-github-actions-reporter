@@ -84,10 +84,14 @@ export class GitHubReporter implements Reporter {
 	}
 
 	public onEnd(result: FullResult): void {
-		this.core.notice(`🎭 ${this.passed} out of ${this.total} test(s) passed (${this.duration(result)})`);
+		this.core.notice(`🎭  ${this.passed} out of ${this.total} test(s) passed (${this.duration(result)})`);
 
 		this.collectSummaryResults();
 		this.collectDetailedResults();
+
+		if (result.status !== "passed") {
+			this.core.setFailed("Test run failed. See the job summary for detailed information.");
+		}
 	}
 
 	public async onExit(): Promise<void> {

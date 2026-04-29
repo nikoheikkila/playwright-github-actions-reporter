@@ -562,7 +562,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 				}),
 			});
 
-			expect(core.notices).toContainEqual(expect.stringContaining("🎭 1 out of 2 test(s) passed (10.0s)"));
+			expect(core.notices).toContainEqual(expect.stringContaining("🎭  1 out of 2 test(s) passed (10.0s)"));
 		});
 
 		test("forwards standard output string to info log", () => {
@@ -590,6 +590,36 @@ describe("Playwright GitHub Actions Reporter", () => {
 			};
 
 			expect(() => reporter.onError(error)).toThrow(message);
+		});
+
+		test("marks the workflow job as failed when the test suite fails", async () => {
+			expect.assertions(2);
+
+			try {
+				await runTests({
+					config: createStubConfig(),
+					suite: createStubSuite({
+						allTests(): TestCase[] {
+							return [
+								createStubTestCase({
+									results: [
+										createStubTestResult({
+											status: "failed",
+										}),
+									],
+								}),
+							];
+						},
+					}),
+					fullResult: createStubFullResult({
+						status: "failed",
+					}),
+				});
+			} catch (error: unknown) {
+				const message = "Test run failed. See the job summary for detailed information.";
+				expect(core.errors).toContain(message);
+				expect((error as Error).message).toBe(message);
+			}
 		});
 	});
 });
