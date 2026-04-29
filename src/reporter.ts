@@ -28,6 +28,10 @@ export class GitHubReporter implements Reporter {
 		this.core.info(`Starting a test run with ${config.workers} workers and ${this.total} tests`);
 	}
 
+	public onTestBegin(test: TestCase, result: TestResult) {
+		this.debug(`Starting test '${this.titlePath(test)}'`);
+	}
+
 	public onTestEnd(test: TestCase, result: TestResult): void {
 		if (result.status === "passed") {
 			this.passed++;
@@ -65,6 +69,12 @@ export class GitHubReporter implements Reporter {
 
 	public async onExit(): Promise<void> {
 		await this.summary.write();
+	}
+
+	private debug(message: string) {
+		if (this.core.isDebug()) {
+			this.core.debug(message);
+		}
 	}
 
 	private collectSummaryResults() {

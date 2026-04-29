@@ -24,8 +24,8 @@ describe("Playwright GitHub Actions Reporter", () => {
 		reporter.onBegin(config, suite);
 
 		for (const testCase of suite.allTests()) {
+			reporter.onTestBegin(testCase, createStubTestResult());
 			const result = testCase.results.at(0) ?? createStubTestResult();
-
 			reporter.onTestEnd(testCase, result);
 		}
 
@@ -498,6 +498,27 @@ describe("Playwright GitHub Actions Reporter", () => {
 			});
 
 			expect(core.infos).toContainEqual(expect.stringContaining("Starting a test run with 2 workers and 2 tests"));
+		});
+
+		test("logs debug when a single test begins", async () => {
+			core.setDebug(true);
+
+			await runTests({
+				config: createStubConfig(),
+				suite: createStubSuite({
+					allTests(): TestCase[] {
+						return [
+							createStubTestCase({
+								titlePath(): string[] {
+									return ["example test"];
+								},
+							}),
+						];
+					},
+				}),
+			});
+
+			expect(core.debugs).toContainEqual(expect.stringContaining("Starting test 'example test'"));
 		});
 	});
 });

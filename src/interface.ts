@@ -2,6 +2,8 @@ import type { TestCase } from "@playwright/test/reporter";
 
 export interface Core {
 	summary: Summary;
+	debug(message: string): void;
+	isDebug(): boolean;
 	info(message: string): void;
 }
 
