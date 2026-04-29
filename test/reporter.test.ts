@@ -6,6 +6,7 @@ import { FakeCore } from "./fakes.ts";
 import { createStubConfig, createStubSuite, createStubTestCase, createStubTestResult } from "./stubs.ts";
 
 type Status = TestResult["status"];
+
 describe("Playwright GitHub Actions Reporter", () => {
 	let core: Core;
 	let reporter: GitHubReporter;
@@ -36,6 +37,83 @@ describe("Playwright GitHub Actions Reporter", () => {
 			summary: core.summary.stringify(),
 		};
 	};
+
+	describe("Full Report Snapshot", () => {
+		test("matches expected structure", async () => {
+			const { summary } = await runTests({
+				config: createStubConfig(),
+				suite: createStubSuite({
+					type: "root",
+					title: "Tests",
+					suites: [
+						createStubSuite({
+							type: "project",
+							title: "Chromium",
+							suites: [
+								createStubSuite({ type: "file", title: "auth.spec.ts" }),
+								createStubSuite({ type: "file", title: "checkout.spec.ts" }),
+							],
+						}),
+					],
+					allTests(): TestCase[] {
+						return [
+							createStubTestCase({
+								titlePath(): string[] {
+									return ["Tests", "auth.spec.ts", "login succeeds"];
+								},
+								results: [createStubTestResult({ status: "passed", duration: 1200, retry: 1 })],
+								tags: ["@smoke"],
+							}),
+							createStubTestCase({
+								titlePath(): string[] {
+									return ["Tests", "auth.spec.ts", "login fails with wrong password"];
+								},
+								results: [createStubTestResult({ status: "failed", duration: 3400, retry: 1 })],
+								tags: ["@auth"],
+							}),
+							createStubTestCase({
+								titlePath(): string[] {
+									return ["Tests", "auth.spec.ts", "login is retried and passes"];
+								},
+								results: [createStubTestResult({ status: "passed", duration: 2100, retry: 2 })],
+								tags: ["@auth", "@smoke"],
+							}),
+							createStubTestCase({
+								titlePath(): string[] {
+									return ["Tests", "checkout.spec.ts", "checkout completes"];
+								},
+								results: [createStubTestResult({ status: "passed", duration: 5600, retry: 1 })],
+								tags: ["@E2E", "@smoke"],
+							}),
+							createStubTestCase({
+								titlePath(): string[] {
+									return ["Tests", "checkout.spec.ts", "checkout times out"];
+								},
+								results: [createStubTestResult({ status: "timedOut", duration: 30000, retry: 2 })],
+								tags: ["@E2E"],
+							}),
+							createStubTestCase({
+								titlePath(): string[] {
+									return ["Tests", "checkout.spec.ts", "checkout is skipped"];
+								},
+								results: [createStubTestResult({ status: "skipped", duration: 0, retry: 1 })],
+								tags: ["@checkout"],
+							}),
+							createStubTestCase({
+								titlePath(): string[] {
+									return ["Tests", "checkout.spec.ts", "checkout is interrupted"];
+								},
+								results: [createStubTestResult({ status: "interrupted", duration: 1500, retry: 1 })],
+								tags: ["@E2E"],
+							}),
+						];
+					},
+				}),
+			});
+
+			expect(summary).toMatchSnapshot();
+		});
+	});
 
 	describe("Summary", () => {
 		test("displays a level 2 report heading", async () => {

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { FullConfig, FullProject, Suite, TestCase, TestResult } from "@playwright/test/reporter";
 
 export function createStubConfig(overrides: Partial<FullConfig> = {}): FullConfig {
@@ -54,7 +55,7 @@ export function createStubTestCase(overrides: Partial<TestCase> = {}): TestCase 
 	return {
 		annotations: [],
 		expectedStatus: "passed",
-		id: "",
+		id: randomUUID(),
 		location: {
 			column: 0,
 			file: "",
