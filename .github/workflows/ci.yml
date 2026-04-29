@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  unit_tests:
-    name: Unit Tests
+  tests:
+    name: Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -26,3 +26,6 @@ jobs:
 
       - name: Run unit tests
         run: task test
+
+      - name: Verify reporter usage
+        run: task verify summary="$GITHUB_STEP_SUMMARY"

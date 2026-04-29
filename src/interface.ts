@@ -3,7 +3,7 @@ export interface Summary {
 
 	addList(items: string[]): Summary;
 
-	write(): Promise<void>;
+	write(): Promise<Summary>;
 
 	stringify(): string;
 }

@@ -114,7 +114,7 @@
 				"noCompareNegZero": "error",
 				"noConfusingLabels": "error",
 				"noConfusingVoidType": "error",
-				"noConsole": "error",
+				"noConsole": "off",
 				"noControlCharactersInRegex": "error",
 				"noDebugger": "error",
 				"noDoubleEquals": "error",

@@ -29,3 +29,12 @@ tasks:
       - ./src/**/*.ts
       - ./test/**/*.ts
     cmd: bunx biome check --write .
+
+  verify:
+    requires:
+      vars:
+      - summary
+    cmds:
+      - cmd: GITHUB_STEP_SUMMARY={{ .summary }} bunx playwright test
+        ignore_error: true
+      - diff e2e/snapshots/summary.md {{ .summary }}
