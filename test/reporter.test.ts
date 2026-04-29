@@ -24,7 +24,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		reporter.onBegin(config, suite);
 
 		for (const testCase of suite.allTests()) {
-			reporter.onTestBegin(testCase, createStubTestResult());
+			reporter.onTestBegin(testCase);
 			const result = testCase.results.at(0) ?? createStubTestResult();
 			reporter.onTestEnd(testCase, result);
 		}
@@ -500,7 +500,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(core.infos).toContainEqual(expect.stringContaining("Starting a test run with 2 workers and 2 tests"));
 		});
 
-		test("logs debug when a single test begins", async () => {
+		test("logs debug when a single test begins and ends", async () => {
 			core.setDebug(true);
 
 			await runTests({
@@ -512,6 +512,11 @@ describe("Playwright GitHub Actions Reporter", () => {
 								titlePath(): string[] {
 									return ["example test"];
 								},
+								results: [
+									createStubTestResult({
+										status: "passed",
+									}),
+								],
 							}),
 						];
 					},
@@ -519,6 +524,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 			});
 
 			expect(core.debugs).toContainEqual(expect.stringContaining("Starting test 'example test'"));
+			expect(core.debugs).toContainEqual(expect.stringContaining("Finished test 'example test' with result 'passed'"));
 		});
 
 		test("forwards standard output string to info log", () => {

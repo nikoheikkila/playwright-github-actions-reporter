@@ -35,11 +35,13 @@ export class GitHubReporter implements Reporter {
 		this.core.info(`Starting a test run with ${config.workers} workers and ${this.total} tests`);
 	}
 
-	public onTestBegin(test: TestCase, result: TestResult) {
+	public onTestBegin(test: TestCase) {
 		this.debug(`Starting test '${this.titlePath(test)}'`);
 	}
 
 	public onTestEnd(test: TestCase, result: TestResult): void {
+		this.debug(`Finished test '${this.titlePath(test)}' with result '${result.status}'`);
+
 		if (result.status === "passed") {
 			this.passed++;
 		}
