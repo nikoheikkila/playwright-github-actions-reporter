@@ -1,4 +1,6 @@
 <h2>🎭 Playwright Test Report</h2>
 <h3>Summary</h3>
-<ul><li>📁 <strong>1</strong> test files total</li><li>🧪 <strong>4</strong> test cases total</li><li>✅ <strong>1</strong> tests passed</li><li>❌ <strong>1</strong> tests failed</li><li>⏰ <strong>1</strong> tests timed out</li><li>⚠️ <strong>1</strong> tests skipped</li></ul>
+<ul><li>📁 <strong>1</strong> test files total</li><li>🧪 <strong>4</strong> test cases total</li><li>✅ <strong>1</strong> tests passed</li><li>❌ <strong>1</strong> tests failed</li><li>⏰ <strong>2</strong> tests timed out</li><li>⚠️ <strong>1</strong> tests skipped</li></ul>
 <h3>Details</h3>
+<details><summary>Show Test Cases</summary><table><tr><th>Test</th><th>Result</th><th>Duration</th><th>Retries</th><th>Tags</th></tr><tr><td>Reporter Verification » example.spec.ts » passing test</td><td>✅ Passed</td><td>0.0s</td><td>1</td><td>@pass</td></tr><tr><td>Reporter Verification » example.spec.ts » failing test</td><td>❌ Failed</td><td>0.0s</td><td>1</td><td>@fail</td></tr><tr><td>Reporter Verification » example.spec.ts » timed out test</td><td>⏰ Timed out</td><td>0.1s</td><td>1</td><td>@timeOut</td></tr><tr><td>Reporter Verification » example.spec.ts » timed out test</td><td>⏰ Timed out</td><td>0.1s</td><td>1</td><td>@timeOut</td></tr><tr><td>Reporter Verification » example.spec.ts » skipped test</td><td>⚠️ Skipped</td><td>0.0s</td><td>1</td><td>@skip</td></tr></table>
+</details>

@@ -44,7 +44,7 @@ export function createStubSuite(overrides: Partial<Suite> = {}): Suite {
 			throw new Error("Function not implemented.");
 		},
 		titlePath(): string[] {
-			throw new Error("Function not implemented.");
+			return [];
 		},
 		...overrides,
 	};
@@ -84,7 +84,7 @@ export function createStubTestCase(overrides: Partial<TestCase> = {}): TestCase 
 			throw new Error("Function not implemented.");
 		},
 		titlePath(): string[] {
-			throw new Error("Function not implemented.");
+			return [];
 		},
 		...overrides,
 	};
