@@ -89,7 +89,7 @@ export class GitHubReporter implements Reporter {
 			titlePath: this.titlePath(test),
 			status: this.status(result),
 			duration: this.duration(result),
-			retries: this.retries(test),
+			retries: this.retries(result),
 			tags: this.tags(test),
 		});
 	}
@@ -123,8 +123,8 @@ export class GitHubReporter implements Reporter {
 		return `${(result.duration / 1000).toFixed(1)}s`;
 	}
 
-	private retries(testCase: TestCase): string {
-		return testCase.retries === 0 ? "None" : testCase.retries.toString();
+	private retries(result: TestResult): string {
+		return result.retry === 0 ? "None" : result.retry.toString();
 	}
 
 	private tags(testCase: TestCase) {

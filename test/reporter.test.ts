@@ -358,7 +358,11 @@ describe("Playwright GitHub Actions Reporter", () => {
 						allTests(): TestCase[] {
 							return [
 								createStubTestCase({
-									retries: 0,
+									results: [
+										createStubTestResult({
+											retry: 1,
+										}),
+									],
 								}),
 							];
 						},
@@ -376,7 +380,11 @@ describe("Playwright GitHub Actions Reporter", () => {
 						allTests(): TestCase[] {
 							return [
 								createStubTestCase({
-									retries: 1,
+									results: [
+										createStubTestResult({
+											retry: 1,
+										}),
+									],
 								}),
 							];
 						},
