@@ -37,7 +37,7 @@ tasks:
     cmds:
       - cmd: GITHUB_STEP_SUMMARY={{ .summary }} bunx playwright test
         ignore_error: true
-      - diff e2e/snapshots/summary.md {{ .summary }}
+      - diff -u e2e/snapshots/summary.md {{ .summary }}
 
   test:all:
     cmds:
