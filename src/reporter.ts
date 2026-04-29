@@ -62,7 +62,11 @@ export class GitHubReporter implements Reporter {
 		return true;
 	}
 
-	public onStdOut(chunk: string | Buffer) {
+	public onStdOut(chunk: string | Buffer): void {
+		this.core.info(chunk.toString("utf-8"));
+	}
+
+	public onStdErr(chunk: string | Buffer): void {
 		this.core.info(chunk.toString("utf-8"));
 	}
 

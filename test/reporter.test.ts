@@ -532,5 +532,11 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			expect(core.infos).toContain("stdout");
 		});
+
+		test("forwards standard error string to info log", () => {
+			reporter.onStdErr("stderr");
+
+			expect(core.infos).toContain("stderr");
+		});
 	});
 });
