@@ -520,5 +520,17 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			expect(core.debugs).toContainEqual(expect.stringContaining("Starting test 'example test'"));
 		});
+
+		test("forwards standard output string to info log", () => {
+			reporter.onStdOut("stdout");
+
+			expect(core.infos).toContain("stdout");
+		});
+
+		test("forwards standard output buffer to info log", () => {
+			reporter.onStdOut(Buffer.from("stdout"));
+
+			expect(core.infos).toContain("stdout");
+		});
 	});
 });

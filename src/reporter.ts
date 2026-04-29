@@ -1,5 +1,5 @@
+import type * as Buffer from "node:buffer";
 import type { FullConfig, FullResult, Reporter, Suite, TestCase, TestResult } from "@playwright/test/reporter";
-
 import type { Core, ResultMap, Summary } from "./interface.ts";
 
 export class GitHubReporter implements Reporter {
@@ -60,6 +60,10 @@ export class GitHubReporter implements Reporter {
 
 	public printsToStdio(): boolean {
 		return true;
+	}
+
+	public onStdOut(chunk: string | Buffer) {
+		this.core.info(chunk.toString("utf-8"));
 	}
 
 	public onEnd(): void {
