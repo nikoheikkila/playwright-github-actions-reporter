@@ -1,5 +1,12 @@
-import type * as Buffer from "node:buffer";
-import type { FullConfig, FullResult, Reporter, Suite, TestCase, TestResult } from "@playwright/test/reporter";
+import type {
+	FullConfig,
+	FullResult,
+	Reporter,
+	Suite,
+	TestCase,
+	TestError,
+	TestResult,
+} from "@playwright/test/reporter";
 import type { Core, ResultMap, Summary } from "./interface.ts";
 
 export class GitHubReporter implements Reporter {
@@ -68,6 +75,10 @@ export class GitHubReporter implements Reporter {
 
 	public onStdErr(chunk: string | Buffer): void {
 		this.core.info(chunk.toString("utf-8"));
+	}
+
+	public onError(error: TestError): never {
+		throw error;
 	}
 
 	public onEnd(): void {

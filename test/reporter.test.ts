@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { FullConfig, Suite, TestCase, TestResult } from "@playwright/test/reporter";
+import type { FullConfig, Suite, TestCase, TestError, TestResult } from "@playwright/test/reporter";
 import { GitHubReporter } from "../src/reporter.ts";
 import { FakeCore } from "./fakes.ts";
 import { createStubConfig, createStubSuite, createStubTestCase, createStubTestResult } from "./stubs.ts";
@@ -537,6 +537,15 @@ describe("Playwright GitHub Actions Reporter", () => {
 			reporter.onStdErr("stderr");
 
 			expect(core.infos).toContain("stderr");
+		});
+
+		test("rethrows unhandled errors", () => {
+			const message = "unhandled error";
+			const error: TestError = {
+				message,
+			};
+
+			expect(() => reporter.onError(error)).toThrow(message);
 		});
 	});
 });

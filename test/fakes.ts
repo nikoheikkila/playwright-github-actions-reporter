@@ -72,6 +72,8 @@ export class FakeCore implements Core {
 	public readonly summary: Summary;
 	public readonly debugs: string[];
 	public readonly infos: string[];
+	public readonly errors: string[] = [];
+
 	private debugEnabled = false;
 
 	constructor() {
@@ -94,5 +96,9 @@ export class FakeCore implements Core {
 
 	public info(message: string): void {
 		this.infos.push(message);
+	}
+
+	public error(message: string): void {
+		this.errors.push(message);
 	}
 }

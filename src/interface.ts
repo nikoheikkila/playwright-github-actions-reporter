@@ -5,6 +5,7 @@ export interface Core {
 	debug(message: string): void;
 	isDebug(): boolean;
 	info(message: string): void;
+	error(message: string): void;
 }
 
 export interface Summary {
