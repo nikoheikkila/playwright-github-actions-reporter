@@ -7,7 +7,25 @@ import type {
 	TestError,
 	TestResult,
 } from "@playwright/test/reporter";
-import type { Core, ResultMap, Summary } from "./interface.ts";
+import type { Core, Summary } from "./interface.ts";
+
+const statusLabels = {
+	passed: "✅ Passed",
+	failed: "❌ Failed",
+	timedOut: "⏰ Timed out",
+	skipped: "⚠️ Skipped",
+	interrupted: "🛑 Interrupted",
+} as const satisfies Record<TestResult["status"], string>;
+
+interface StoredResult {
+	titlePath: string;
+	status: TestResult["status"];
+	duration: string;
+	retries: string;
+	tags: string;
+}
+
+type ResultMap = Map<TestCase["id"], StoredResult>;
 
 export class GitHubReporter implements Reporter {
 	private readonly core: Core;
@@ -16,10 +34,13 @@ export class GitHubReporter implements Reporter {
 
 	private files = 0;
 	private total = 0;
-	private passed = 0;
-	private failures = 0;
-	private timeouts = 0;
-	private skipped = 0;
+	private readonly counts: Record<TestResult["status"], number> = {
+		passed: 0,
+		failed: 0,
+		timedOut: 0,
+		skipped: 0,
+		interrupted: 0,
+	};
 
 	constructor(core: Core) {
 		this.core = core;
@@ -40,27 +61,13 @@ export class GitHubReporter implements Reporter {
 	}
 
 	public onTestEnd(test: TestCase, result: TestResult): void {
-		this.debug(`Finished test '${this.titlePath(test)}' with result '${result.status}'`);
-
-		if (result.status === "passed") {
-			this.passed++;
-		}
-
-		if (result.status === "failed") {
-			this.failures++;
-		}
-
-		if (result.status === "timedOut") {
-			this.timeouts++;
-		}
-
-		if (result.status === "skipped") {
-			this.skipped++;
-		}
+		const titlePath = this.titlePath(test);
+		this.debug(`Finished test '${titlePath}' with result '${result.status}'`);
+		this.counts[result.status]++;
 
 		this.results.set(test.id, {
-			titlePath: this.titlePath(test),
-			status: this.status(result),
+			titlePath,
+			status: result.status,
 			duration: this.duration(result),
 			retries: this.retries(result),
 			tags: this.tags(test),
@@ -84,7 +91,7 @@ export class GitHubReporter implements Reporter {
 	}
 
 	public onEnd(result: FullResult): void {
-		this.core.notice(`🎭  ${this.passed} out of ${this.total} test(s) passed (${this.duration(result)})`);
+		this.core.notice(`🎭  ${this.counts.passed} out of ${this.total} test(s) passed (${this.duration(result)})`);
 
 		this.collectSummaryResults();
 		this.collectDetailedResults();
@@ -108,10 +115,10 @@ export class GitHubReporter implements Reporter {
 		return this.summary.addList([
 			`📁 <strong>${this.files}</strong> test files total`,
 			`🧪 <strong>${this.total}</strong> test cases total`,
-			`✅ <strong>${this.passed}</strong> tests passed`,
-			`❌ <strong>${this.failures}</strong> tests failed`,
-			`⏰ <strong>${this.timeouts}</strong> tests timed out`,
-			`⚠️ <strong>${this.skipped}</strong> tests skipped`,
+			`✅ <strong>${this.counts.passed}</strong> tests passed`,
+			`❌ <strong>${this.counts.failed}</strong> tests failed`,
+			`⏰ <strong>${this.counts.timedOut}</strong> tests timed out`,
+			`⚠️ <strong>${this.counts.skipped}</strong> tests skipped`,
 		]);
 	}
 
@@ -125,23 +132,6 @@ export class GitHubReporter implements Reporter {
 
 	private titlePath(test: TestCase) {
 		return test.titlePath().filter(Boolean).join(" » ");
-	}
-
-	private status(result: TestResult): string {
-		switch (result.status) {
-			case "passed":
-				return "✅ Passed";
-			case "failed":
-				return "❌ Failed";
-			case "timedOut":
-				return "⏰ Timed out";
-			case "skipped":
-				return "⚠️ Skipped";
-			case "interrupted":
-				return "🛑 Interrupted";
-			default:
-				return result.status;
-		}
 	}
 
 	private duration(result: TestResult | FullResult): string {
@@ -159,7 +149,7 @@ export class GitHubReporter implements Reporter {
 	private get dataRows() {
 		return this.results
 			.values()
-			.map((result) => [result.titlePath, result.status, result.duration, result.retries, result.tags]);
+			.map((result) => [result.titlePath, statusLabels[result.status], result.duration, result.retries, result.tags]);
 	}
 
 	private get columns() {
