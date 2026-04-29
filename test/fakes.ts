@@ -70,16 +70,15 @@ export class FakeSummary implements Summary {
 
 export class FakeCore implements Core {
 	public readonly summary: Summary;
-	public readonly debugs: string[];
-	public readonly infos: string[];
+	public readonly debugs: string[] = [];
+	public readonly infos: string[] = [];
 	public readonly errors: string[] = [];
+	public readonly notices: string[] = [];
 
 	private debugEnabled = false;
 
 	constructor() {
 		this.summary = new FakeSummary();
-		this.debugs = [];
-		this.infos = [];
 	}
 
 	public debug(message: string): void {
@@ -96,6 +95,10 @@ export class FakeCore implements Core {
 
 	public info(message: string): void {
 		this.infos.push(message);
+	}
+
+	public notice(message: string) {
+		this.notices.push(message);
 	}
 
 	public error(message: string): void {

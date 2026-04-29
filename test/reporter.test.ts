@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { FullConfig, Suite, TestCase, TestError, TestResult } from "@playwright/test/reporter";
+import type { FullConfig, FullResult, Suite, TestCase, TestError, TestResult } from "@playwright/test/reporter";
 import { GitHubReporter } from "../src/reporter.ts";
 import { FakeCore } from "./fakes.ts";
-import { createStubConfig, createStubSuite, createStubTestCase, createStubTestResult } from "./stubs.ts";
+import {
+	createStubConfig,
+	createStubFullResult,
+	createStubSuite,
+	createStubTestCase,
+	createStubTestResult,
+} from "./stubs.ts";
 
 type Status = TestResult["status"];
 
@@ -13,6 +19,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 	interface RunDependencies {
 		config: FullConfig;
 		suite: Suite;
+		fullResult?: FullResult;
 	}
 
 	beforeEach(() => {
@@ -20,7 +27,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		reporter = new GitHubReporter(core);
 	});
 
-	const runTests = async ({ config, suite }: RunDependencies) => {
+	const runTests = async ({ config, suite, fullResult }: RunDependencies) => {
 		reporter.onBegin(config, suite);
 
 		for (const testCase of suite.allTests()) {
@@ -29,7 +36,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 			reporter.onTestEnd(testCase, result);
 		}
 
-		reporter.onEnd();
+		reporter.onEnd(fullResult ?? createStubFullResult());
 		await reporter.onExit();
 
 		return {
@@ -525,6 +532,37 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			expect(core.debugs).toContainEqual(expect.stringContaining("Starting test 'example test'"));
 			expect(core.debugs).toContainEqual(expect.stringContaining("Finished test 'example test' with result 'passed'"));
+		});
+
+		test("logs notice when test suite finishes", async () => {
+			await runTests({
+				config: createStubConfig(),
+				suite: createStubSuite({
+					allTests(): TestCase[] {
+						return [
+							createStubTestCase({
+								results: [
+									createStubTestResult({
+										status: "passed",
+									}),
+								],
+							}),
+							createStubTestCase({
+								results: [
+									createStubTestResult({
+										status: "failed",
+									}),
+								],
+							}),
+						];
+					},
+				}),
+				fullResult: createStubFullResult({
+					duration: 10_000,
+				}),
+			});
+
+			expect(core.notices).toContainEqual(expect.stringContaining("🎭 1 out of 2 test(s) passed (10.0s)"));
 		});
 
 		test("forwards standard output string to info log", () => {

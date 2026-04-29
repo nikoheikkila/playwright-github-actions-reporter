@@ -83,7 +83,9 @@ export class GitHubReporter implements Reporter {
 		throw error;
 	}
 
-	public onEnd(): void {
+	public onEnd(result: FullResult): void {
+		this.core.notice(`🎭 ${this.passed} out of ${this.total} test(s) passed (${this.duration(result)})`);
+
 		this.collectSummaryResults();
 		this.collectDetailedResults();
 	}
