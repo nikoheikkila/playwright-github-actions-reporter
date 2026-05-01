@@ -1,5 +1,14 @@
 {
 	"permissions": {
-		"allow": ["Bash(bunx biome *)", "Bash(bun test *)", "Bash(task *)", "Bash(bunx playwright *)"]
+		"allow": [
+			"Bash(bunx biome *)",
+			"Bash(bun test *)",
+			"Bash(task *)",
+			"Bash(bunx playwright *)",
+			"Bash(git remote *)",
+			"Bash(bunx tsc *)",
+			"Bash(bun build *)",
+			"Bash(bun install *)"
+		]
 	}
 }

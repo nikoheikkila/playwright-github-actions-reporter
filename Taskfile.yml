@@ -39,6 +39,11 @@ tasks:
         ignore_error: true
       - diff -u e2e/snapshots/summary.md {{ .summary }}
 
+  build:
+    cmds:
+      - bun build index.ts --outdir dist --target node --external '@actions/core' --external '@playwright/test'
+      - bunx tsc --project tsconfig.build.json
+
   test:all:
     cmds:
       - task: format
@@ -47,3 +52,4 @@ tasks:
       - task: verify
         vars:
           summary: test-results/summary.md
+      - task: build

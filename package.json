@@ -1,22 +1,48 @@
 {
-	"name": "playwright-github-actions-reporter",
-	"module": "index.ts",
+	"name": "@nikoheikkila/playwright-github-actions-reporter",
+	"description": "A Playwright reporter that renders test results as GitHub Actions step summaries",
+	"version": "0.0.2",
 	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"default": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"license": "MIT",
+	"keywords": [
+		"playwright",
+		"github-actions",
+		"reporter",
+		"testing"
+	],
+	"author": "Niko Heikkilä <niko.heikkila@polarsquad.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nikoheikkila/playwright-github-actions-reporter.git"
+	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.13",
 		"@types/bun": "latest",
 		"husky": "^9.1.7",
-		"lint-staged": "^16.4.0"
+		"lint-staged": "^16.4.0",
+		"typescript": "^6.0.3"
 	},
 	"peerDependencies": {
-		"typescript": "^5"
-	},
-	"dependencies": {
-		"@actions/core": "^3.0.1",
 		"@playwright/test": "^1.59.1"
 	},
+	"dependencies": {
+		"@actions/core": "^3.0.1"
+	},
 	"scripts": {
-		"prepare": "husky"
+		"prepare": "bunx husky",
+		"prepublishOnly": "task build"
 	},
 	"lint-staged": {
 		"**/*.([jt]s|json)": "bunx biome check --write"
