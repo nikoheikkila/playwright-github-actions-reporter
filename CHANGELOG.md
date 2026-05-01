@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1.0](https://github.com/nikoheikkila/playwright-github-actions-reporter/compare/v1.0.0...v1.1.0) (2026-05-01)
+## [1.0.0](https://github.com/nikoheikkila/playwright-github-actions-reporter/releases/tag/v1.0.0) (2026-05-01)
 
 
 ### Features
