@@ -1,7 +1,7 @@
 {
 	"name": "@nikoheikkila/playwright-github-actions-reporter",
 	"description": "A Playwright reporter that renders test results as GitHub Actions step summaries",
-	"version": "0.0.2",
+	"version": "1.0.0",
 	"type": "module",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
