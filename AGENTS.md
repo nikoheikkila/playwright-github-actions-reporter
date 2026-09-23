@@ -15,6 +15,11 @@ This project is a custom Playwright reporter that renders the run as a GitHub Ac
 - `test/` — `bun:test` unit tests with `FakeCore` / `FakeSummary` (`test/fakes.ts`) and `createStubX` factories for Playwright fixtures (`test/stubs.ts`).
 - `e2e/` — Playwright suite (`example.spec.ts`) that intentionally contains passing / failing / timing-out / skipped tests; the rendered summary is diffed against `e2e/snapshots/summary.md`.
 
+### Reporter lifecycle
+
+- The step summary is built up in memory by chaining `Summary` calls: the heading in `onBegin`, the counts list and the collapsible details table in `onEnd`. It is written to `$GITHUB_STEP_SUMMARY` only in `onExit` (`summary.write()`). `onEnd` also calls `core.setFailed` when the run status isn't `passed`.
+- `counts` goes up once per attempt (every `onTestEnd`), but `results` is keyed by `test.id`, so a retry overwrites the earlier row. As a result, a retried test is counted once for each attempt in the summary list and shows up once in the details table. Both snapshots depend on this.
+
 ## Commands
 
 Run everything through Task — these are what CI runs.
@@ -24,8 +29,15 @@ Run everything through Task — these are what CI runs.
 - `task format` — Format codebase with Biome
 - `task test` — Run unit tests with coverage
 - `task test:watch` — Run unit tests using an interactive watcher
-- `task verify summary=<path>` — Playwright run + `diff` against `e2e/snapshots/summary.md`
-- `task test:all` — format → lint → test → verify (full local pipeline)
+- `task verify summary=<path>` — Playwright run + `diff` against `e2e/snapshots/summary.md`. The Playwright step has `ignore_error: true` because the e2e suite fails on purpose, so only the `diff` sets the exit code.
+- `task build` — `bun build` bundles `index.ts` into `dist/` (with `@actions/core` and `@playwright/test` kept external), then `tsc -p tsconfig.build.json` emits only the `.d.ts` files. `prepublishOnly` runs this.
+- `task test:all` — format → lint → test → verify → build (full local pipeline)
+
+Ad-hoc variants:
+
+- Single test file: `bun test test/reporter.test.ts`. Single test by name: `bun test -t "<name pattern>"`.
+- Update the `bun:test` snapshot (`test/__snapshots__/reporter.test.ts.snap`): `bun test --update-snapshots`.
+- Regenerate the e2e snapshot: `task verify summary=e2e/snapshots/summary.md`.
 
 ## Bun
 
@@ -76,3 +88,4 @@ Biome (`biome.json`) is strict and enforced via `task lint` and the lint-staged 
 
 - `.husky/pre-commit` runs `bunx lint-staged` (Biome write on staged JS/TS/JSON) followed by `task test`. Don't bypass with `--no-verify`; if a hook fails, fix the underlying issue.
 - `.github/workflows/ci.yml` runs `task lint`, `task test`, then `task verify` against the runner-provided `$GITHUB_STEP_SUMMARY`. Keep these green before opening a PR.
+- Releases come from Release Please: on pushes to `main`, it opens or updates a release PR based on Conventional Commit messages (`feat:`, `fix:`, `chore:`, `docs:` …). Merging that PR tags the release and runs `npm publish --provenance`. Use Conventional Commit messages. Don't bump `version` in `package.json` or edit `CHANGELOG.md` by hand.
