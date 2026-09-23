@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.0.0](https://github.com/nikoheikkila/playwright-github-actions-reporter/compare/v1.0.0...v2.0.0) (2026-09-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* test summary counts changed from per-attempt to final outcome. The "timed out" line is replaced by "flaky". Counts now add up to the test total.
+* requires @playwright/test >= 1.63.0
+
+### Features
+
+* accept reporter options (omitTags, title) ([0305bf6](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/0305bf69dfa8fc0dfb155cfed3d5116ad45fdf7c))
+* emit inline GitHub annotations for failed and flaky tests ([868f68b](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/868f68b229bb8746fb6594bcfd1db3286d1c3350))
+* require @playwright/test 1.63 ([648732c](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/648732c94a06509d628294d53e2ef6df344bf000))
+* show failure details in the step summary ([2ce21ac](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/2ce21acdd71a2a4ddd75fa48f2451401fbb909f1))
+* summarise tests by final outcome, including flaky ([d34a111](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/d34a111172cd6899c0df1489bec9f19fb8390ab1))
+
+
+### Bug Fixes
+
+* count interrupted tests separately and use a neutral flaky label ([e23b9be](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/e23b9beb3c36f64dc8775201a4ec7e403fdfd1f4))
+* report errors outside tests instead of rethrowing ([55c12a9](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/55c12a98ec5dc1de2816eb0fb693cedaf5c9ec45))
+
 ## [1.0.0](https://github.com/nikoheikkila/playwright-github-actions-reporter/releases/tag/v1.0.0) (2026-05-01)
 
 
