@@ -24,6 +24,9 @@ jobs:
       - name: Lint code style
         run: task lint
 
+      - name: Type check
+        run: task typecheck
+
       - name: Run unit tests
         run: task test
 

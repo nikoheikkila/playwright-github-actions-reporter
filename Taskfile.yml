@@ -19,16 +19,22 @@ tasks:
     cmd: bun test --watch
 
   lint:
-    sources:
+    sources: &typescript-sources
+      - ./index.ts
+      - ./playwright.config.ts
       - ./src/**/*.ts
       - ./test/**/*.ts
+      - ./e2e/**/*.ts
+      - ./scripts/**/*.ts
     cmd: bunx biome check .
 
   format:
-    sources:
-      - ./src/**/*.ts
-      - ./test/**/*.ts
+    sources: *typescript-sources
     cmd: bunx biome check --write .
+
+  typecheck:
+    desc: Type-check every TypeScript file (bun test does not type-check)
+    cmd: bunx tsc --noEmit --project tsconfig.json
 
   verify:
     requires:
@@ -44,10 +50,15 @@ tasks:
       - bun build index.ts --outdir dist --target node --external '@actions/core' --external '@playwright/test'
       - bunx tsc --project tsconfig.build.json
 
+  playwright:diff:
+    desc: Diff reporter-facing Playwright types between the installed and a target version (default latest)
+    cmd: bun scripts/diffPlaywrightTypes.ts {{ .version | default "latest" }}
+
   test:all:
     cmds:
       - task: format
       - task: lint
+      - task: typecheck
       - task: test
       - task: verify
         vars:
