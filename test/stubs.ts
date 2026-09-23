@@ -3,6 +3,8 @@ import type { FullConfig, FullProject, FullResult, Suite, TestCase, TestResult }
 
 export function createStubConfig(overrides: Partial<FullConfig> = {}): FullConfig {
 	return {
+		argv: [],
+		failOnFlakyTests: false,
 		forbidOnly: false,
 		fullyParallel: false,
 		globalSetup: null,
