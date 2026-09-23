@@ -129,7 +129,8 @@ describe("Playwright GitHub Actions Reporter", () => {
 				count(summary, "tests passed") +
 					count(summary, "tests failed") +
 					count(summary, "tests flaky") +
-					count(summary, "tests skipped"),
+					count(summary, "tests skipped") +
+					count(summary, "tests interrupted"),
 			).toBe(count(summary, "test cases total"));
 			expect(summary).toMatchSnapshot();
 		});
@@ -382,6 +383,77 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(summary).toContain("<li>⚠️ <strong>2</strong> tests skipped</li>");
 		});
 
+		test("counts interrupted tests as interrupted (not skipped)", async () => {
+			const { summary } = await runTests({
+				config: createStubConfig(),
+				suite: createStubSuite({
+					allTests(): TestCase[] {
+						return [
+							createStubTestCase({ title: "first passing test" }),
+							createStubTestCase({
+								title: "first interrupted test",
+								results: [createStubTestResult({ status: "interrupted" })],
+							}),
+						];
+					},
+				}),
+			});
+
+			expect(summary).toContain(
+				"<li>⚠️ <strong>0</strong> tests skipped</li><li>🛑 <strong>1</strong> tests interrupted</li>",
+			);
+		});
+
+		test("omits the interrupted count when no tests were interrupted", async () => {
+			const { summary } = await runTests({
+				config: createStubConfig(),
+				suite: createStubSuite(),
+			});
+
+			expect(summary).not.toContain("tests interrupted");
+		});
+
+		test("counts that add up to total", async () => {
+			const { summary } = await runTests({
+				config: createStubConfig(),
+				suite: createStubSuite({
+					allTests(): TestCase[] {
+						return [
+							createStubTestCase({ title: "first passing test" }),
+							createStubTestCase({
+								title: "first failing test",
+								results: [createStubTestResult({ status: "failed" })],
+							}),
+							createStubTestCase({
+								title: "first flaky test",
+								results: [
+									createStubTestResult({ status: "failed", retry: 0 }),
+									createStubTestResult({ status: "passed", retry: 1 }),
+								],
+							}),
+							createStubTestCase({
+								title: "first skipped test",
+								results: [createStubTestResult({ status: "skipped" })],
+							}),
+							createStubTestCase({ title: "first test that never ran", results: [] }),
+							createStubTestCase({
+								title: "first interrupted test",
+								results: [createStubTestResult({ status: "interrupted" })],
+							}),
+						];
+					},
+				}),
+			});
+
+			expect(
+				count(summary, "tests passed") +
+					count(summary, "tests failed") +
+					count(summary, "tests flaky") +
+					count(summary, "tests skipped") +
+					count(summary, "tests interrupted"),
+			).toBe(count(summary, "test cases total"));
+		});
+
 		describe("When flaky tests fail the run", () => {
 			const failOnFlakyTestsNote =
 				"<p>🔁 Flaky tests fail the run because <code>failOnFlakyTests</code> is enabled.</p>";
@@ -555,7 +627,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 				expect(summary).toMatch(new RegExp(`<td>${expected}</td>`));
 			});
 
-			test.each([1, 2])("flaky test passing on retry %d displays the retry", async (retry: number) => {
+			test.each([1, 2])("flaky test passing on retry %d displays the number of attempts", async (retry: number) => {
 				const { summary } = await runTests({
 					config: createStubConfig(),
 					suite: createStubSuite({
@@ -574,16 +646,37 @@ describe("Playwright GitHub Actions Reporter", () => {
 					}),
 				});
 
-				expect(summary).toContain(`<td>🔁 Flaky (passed on retry ${retry})</td>`);
+				expect(summary).toContain(`<td>🔁 Flaky (${retry + 1} attempts)</td>`);
 			});
 
-			const expectedResultMap: [Status, string][] = [
+			test("flaky test expected to fail displays the number of attempts", async () => {
+				const { summary } = await runTests({
+					config: createStubConfig(),
+					suite: createStubSuite({
+						allTests(): TestCase[] {
+							return [
+								createStubTestCase({
+									expectedStatus: "failed",
+									results: [
+										createStubTestResult({ status: "passed", retry: 0 }),
+										createStubTestResult({ status: "failed", retry: 1 }),
+									],
+								}),
+							];
+						},
+					}),
+				});
+
+				expect(summary).toContain("<td>🔁 Flaky (2 attempts)</td>");
+			});
+
+			const expectedFailureResultMap: [Status, string][] = [
 				["failed", "✅ Failed as expected"],
-				["timedOut", "✅ Timed out as expected"],
+				["timedOut", "⏰ Timed out"],
 			];
 
-			test.each(expectedResultMap)(
-				"test expected to end as %s displays as %s",
+			test.each(expectedFailureResultMap)(
+				"test expected to fail that ends as %s displays as %s",
 				async (status: Status, expected: string) => {
 					const { summary } = await runTests({
 						config: createStubConfig(),
@@ -591,7 +684,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 							allTests(): TestCase[] {
 								return [
 									createStubTestCase({
-										expectedStatus: status,
+										expectedStatus: "failed",
 										results: [createStubTestResult({ status })],
 									}),
 								];

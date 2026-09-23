@@ -18,7 +18,7 @@ This project is a custom Playwright reporter that renders the run as a GitHub Ac
 ### Reporter lifecycle
 
 - The step summary is built up in memory by chaining `Summary` calls: the heading in `onBegin`, the counts list and the collapsible details table in `onEnd`. It is written to `$GITHUB_STEP_SUMMARY` only in `onExit` (`summary.write()`). `onEnd` also calls `core.setFailed` when the run status isn't `passed`.
-- Details-table rows are keyed by `test.id`, so a retried test overwrites its earlier row. Counts are computed in `onEnd` from `outcome()` of every test in `suite.allTests()` (captured in `onBegin`): `passed` (expected, including tests that fail as expected), `failed` (unexpected), `flaky` (flaky), and `skipped` (skipped, including interrupted tests and tests that never ran). Every test lands in exactly one bucket, so the counts add up to the test total.
+- Details-table rows are keyed by `test.id`, so a retried test overwrites its earlier row. Counts are computed in `onEnd` from `outcome()` of every test in `suite.allTests()` (captured in `onBegin`): `passed` (expected, including tests that fail as expected), `failed` (unexpected), `flaky` (flaky), `skipped` (skipped, including tests that never ran), and `interrupted` (skipped whose last result is `interrupted`; the summary shows this line only when the count is above zero). Every test lands in exactly one bucket, so the counts add up to the test total.
 
 ## Commands
 

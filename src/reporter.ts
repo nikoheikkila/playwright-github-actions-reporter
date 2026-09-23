@@ -11,6 +11,7 @@ import type { Core, Summary } from "./interface.ts";
 
 type Status = TestResult["status"];
 type Outcome = ReturnType<TestCase["outcome"]>;
+type CountedOutcome = Outcome | "interrupted";
 
 const statusLabels = {
 	passed: "✅ Passed",
@@ -22,7 +23,6 @@ const statusLabels = {
 
 const expectedStatusLabels: Partial<Record<Status, string>> = {
 	failed: "✅ Failed as expected",
-	timedOut: "✅ Timed out as expected",
 };
 
 interface StoredResult {
@@ -35,7 +35,7 @@ interface StoredResult {
 
 type ResultMap = Map<TestCase["id"], StoredResult>;
 
-type Counts = Record<"passed" | "failed" | "flaky" | "skipped", number>;
+type Counts = Record<"passed" | "failed" | "flaky" | "skipped" | "interrupted", number>;
 
 const escapeHtml = (text: string): string =>
 	text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -121,15 +121,23 @@ export class GitHubReporter implements Reporter {
 	}
 
 	private counts(): Counts {
-		const outcomes = this.tests.map((test) => test.outcome());
-		const count = (outcome: Outcome) => outcomes.filter((candidate) => candidate === outcome).length;
+		const outcomes = this.tests.map((test) => this.outcome(test));
+		const count = (outcome: CountedOutcome) => outcomes.filter((candidate) => candidate === outcome).length;
 
 		return {
 			passed: count("expected"),
 			failed: count("unexpected"),
 			flaky: count("flaky"),
 			skipped: count("skipped"),
+			interrupted: count("interrupted"),
 		};
+	}
+
+	private outcome(test: TestCase): CountedOutcome {
+		const outcome = test.outcome();
+		const interrupted = outcome === "skipped" && test.results.at(-1)?.status === "interrupted";
+
+		return interrupted ? "interrupted" : outcome;
 	}
 
 	private collectSummaryResults(counts: Counts) {
@@ -140,6 +148,7 @@ export class GitHubReporter implements Reporter {
 			`❌ <strong>${counts.failed}</strong> tests failed`,
 			`🔁 <strong>${counts.flaky}</strong> tests flaky`,
 			`⚠️ <strong>${counts.skipped}</strong> tests skipped`,
+			...(counts.interrupted > 0 ? [`🛑 <strong>${counts.interrupted}</strong> tests interrupted`] : []),
 		]);
 
 		if (this.failOnFlakyTests && counts.flaky > 0) {
@@ -161,7 +170,7 @@ export class GitHubReporter implements Reporter {
 
 	private label(outcome: Outcome, { status, retry }: TestResult): string {
 		if (outcome === "flaky") {
-			return `🔁 Flaky (passed on retry ${retry})`;
+			return `🔁 Flaky (${retry + 1} attempts)`;
 		}
 
 		if (outcome === "expected") {
