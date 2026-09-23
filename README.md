@@ -100,6 +100,34 @@ jobs:
 
 GitHub Actions sets `$GITHUB_STEP_SUMMARY` automatically on every runner. The reporter reads that variable and writes the summary there — nothing else to configure.
 
+## Reporter options
+
+The reporter accepts options to customize its output:
+
+```typescript
+// playwright.config.ts
+import { defineConfig } from "@playwright/test";
+
+export default defineConfig({
+  reporter: [
+    [
+      "@nikoheikkila/playwright-github-actions-reporter",
+      {
+        omitTags: true,
+        title: "E2E tests",
+      },
+    ],
+  ],
+});
+```
+
+| Option     | Type      | Description                                                                                                                                  |
+|------------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `omitTags` | `boolean` | When `true`, hides the Tags column from the results table. Defaults to `false`. Matches Playwright's built-in `omitTags` option in 1.63+. |
+| `title`    | `string`  | Custom heading for the report, replacing "🎭 Playwright Test Report". Defaults to the standard heading.                                      |
+
+When running sharded tests (configured with `shard` in `playwright.config.ts`), the report automatically appends " (shard x/y)" to the heading, so parallel jobs can be distinguished in the summary.
+
 ## Development
 
 This project uses [Bun](https://bun.sh) as the runtime and package manager, and [Task](https://taskfile.dev) for scripting.

@@ -9,7 +9,7 @@ import type {
 	TestResult,
 	WorkerInfo,
 } from "@playwright/test/reporter";
-import { GitHubReporter } from "../src/reporter.ts";
+import { GitHubReporter, type GitHubReporterOptions } from "../src/reporter.ts";
 import { FakeCore } from "./fakes.ts";
 import {
 	createStubConfig,
@@ -639,6 +639,18 @@ describe("Playwright GitHub Actions Reporter", () => {
 				);
 
 				expect(summary).toContain("<td>Tests » example.spec.ts » multi line example test</td>");
+			});
+
+			test("whitespace around line breaks is collapsed to a single space", async () => {
+				const { summary } = await runTestCases(
+					createStubTestCase({
+						titlePath(): string[] {
+							return ["Tests", "example.spec.ts", "multi \n  line\t\r\n\texample"];
+						},
+					}),
+				);
+
+				expect(summary).toContain("<td>Tests » example.spec.ts » multi line example</td>");
 			});
 		});
 
@@ -1364,9 +1376,9 @@ describe("Playwright GitHub Actions Reporter", () => {
 		const errorsHeading = "<h3>Errors outside tests</h3>";
 		const errorsFailure = "Errors outside tests detected. See the job summary for details.";
 
-		const finishRun = async () => {
+		const finishRun = async (...testCases: TestCase[]) => {
 			try {
-				await runTestCases();
+				await runTestCases(...testCases);
 			} catch (error: unknown) {
 				if (!(error instanceof Error && error.message === errorsFailure)) {
 					throw error;
@@ -1515,12 +1527,146 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(errorDetails(summary)).toContain("<summary>Error outside tests (&lt;chromium&gt; &amp; more)</summary>");
 		});
 
+		test("collapses line breaks in project name within error title", async () => {
+			reporter.onError(createStubTestError(), createNamedWorkerInfo("chromium\n  desktop"));
+
+			const { summary } = await finishRun();
+
+			expect(errorDetails(summary)).toContain("<summary>Error outside tests (chromium desktop)</summary>");
+		});
+
+		test("renders both Failures and Errors sections in order", async () => {
+			const failuresHeading = "<h3>Failures</h3>";
+			reporter.onError(createStubTestError());
+
+			const { summary } = await finishRun(
+				createStubTestCase({ results: [createStubTestResult({ status: "failed", errors: [createStubTestError()] })] }),
+			);
+
+			expect(summary).toContain(failuresHeading);
+			expect(summary).toContain(errorsHeading);
+			expect(summary.indexOf(failuresHeading)).toBeLessThan(summary.indexOf(errorsHeading));
+		});
+
+		test("calls setFailed exactly once with test-run message when result.status is failed", async () => {
+			const testRunFailure = "Test run failed. See the job summary for detailed information.";
+			reporter.onError(createStubTestError());
+
+			await expect(
+				runTests({
+					config: createStubConfig(),
+					suite: createStubSuite(),
+					fullResult: createStubFullResult({ status: "failed" }),
+				}),
+			).rejects.toThrow(testRunFailure);
+
+			expect(core.errors.filter((message) => message === testRunFailure || message === errorsFailure)).toEqual([
+				testRunFailure,
+			]);
+		});
+
 		test("normalises \\r\\n and \\r to \\n in error message", async () => {
 			reporter.onError(createStubTestError({ message: "first\r\nsecond\rthird\nfourth" }));
 
 			const { summary } = await finishRun();
 
 			expect(errorDetails(summary)).toContain("<pre>first&#10;second&#10;third&#10;fourth</pre>");
+		});
+	});
+
+	describe("Reporter options", () => {
+		const shard = { current: 2, total: 3 };
+		const headerRow = "<tr><th>Test</th><th>Result</th><th>Duration</th><th>Retries</th></tr>";
+
+		const configure = (options: GitHubReporterOptions) => {
+			reporter = new GitHubReporter(core, options);
+		};
+
+		const runEmptySuite = (config: FullConfig = createStubConfig()) => runTests({ config, suite: createStubSuite() });
+
+		test("uses default heading when no title option", async () => {
+			configure({});
+
+			const { summary } = await runEmptySuite();
+
+			expect(summary).toContain("<h2>🎭 Playwright Test Report</h2>");
+		});
+
+		test("uses custom title when provided", async () => {
+			configure({ title: "E2E tests" });
+
+			const { summary } = await runEmptySuite();
+
+			expect(summary).toContain("<h2>E2E tests</h2>");
+			expect(summary).not.toContain("🎭 Playwright Test Report");
+		});
+
+		test("escapes HTML in custom title", async () => {
+			configure({ title: "<E2E> & more" });
+
+			const { summary } = await runEmptySuite();
+
+			expect(summary).toContain("<h2>&lt;E2E&gt; &amp; more</h2>");
+		});
+
+		test("appends shard suffix when config.shard is set (default heading)", async () => {
+			configure({});
+
+			const { summary } = await runEmptySuite(createStubConfig({ shard }));
+
+			expect(summary).toContain("<h2>🎭 Playwright Test Report (shard 2/3)</h2>");
+		});
+
+		test("appends shard suffix when config.shard is set (custom title)", async () => {
+			configure({ title: "E2E tests" });
+
+			const { summary } = await runEmptySuite(createStubConfig({ shard }));
+
+			expect(summary).toContain("<h2>E2E tests (shard 2/3)</h2>");
+		});
+
+		test("does not append shard suffix when config.shard is null", async () => {
+			configure({ title: "E2E tests" });
+
+			const { summary } = await runEmptySuite(createStubConfig({ shard: null }));
+
+			expect(summary).toContain("<h2>E2E tests</h2>");
+			expect(summary).not.toContain("(shard");
+		});
+
+		test("omits Tags column when omitTags: true", async () => {
+			configure({ omitTags: true });
+
+			const { summary } = await runEmptySuite();
+
+			expect(summary).toContain(`<table>${headerRow}`);
+			expect(summary).not.toContain("<th>Tags</th>");
+		});
+
+		test("includes Tags column when omitTags: false (default)", async () => {
+			configure({ omitTags: false });
+
+			const { summary } = await runEmptySuite();
+
+			expect(summary).toContain("<th>Retries</th><th>Tags</th></tr>");
+		});
+
+		test("omits Tags column data when omitTags: true", async () => {
+			configure({ omitTags: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					titlePath(): string[] {
+						return ["Tests", "example.spec.ts", "example test"];
+					},
+					tags: ["@E2E"],
+				}),
+			);
+
+			expect(summary).toContain(
+				"<tr><td>Tests » example.spec.ts » example test</td><td>✅ Passed</td><td>0.0s</td><td>None</td></tr>",
+			);
+			expect(summary).not.toContain("@E2E");
 		});
 	});
 

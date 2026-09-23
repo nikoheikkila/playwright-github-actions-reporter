@@ -1,8 +1,10 @@
 import * as core from "@actions/core";
-import { GitHubReporter } from "./src/reporter.ts";
+import { GitHubReporter, type GitHubReporterOptions } from "./src/reporter.ts";
+
+export type { GitHubReporterOptions };
 
 export default class Reporter extends GitHubReporter {
-	constructor() {
-		super(core);
+	constructor(options: GitHubReporterOptions = {}) {
+		super(core, options);
 	}
 }

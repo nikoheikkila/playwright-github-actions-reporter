@@ -53,15 +53,21 @@ const lineBreaks = /\r\n|\r|\n/g;
 const escapeHtml = (text: string): string =>
 	text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-const inlineHtml = (text: string): string => escapeHtml(text).replaceAll(lineBreaks, " ");
+const inlineHtml = (text: string): string => escapeHtml(text).replaceAll(/\s*[\r\n]+\s*/g, " ");
 
 const preformattedHtml = ({ message, snippet }: ErrorMessage): string =>
 	(snippet === undefined ? [message] : [message, snippet])
 		.map((text) => `<pre>${escapeHtml(text).replaceAll(lineBreaks, "&#10;")}</pre>`)
 		.join("");
 
+export interface GitHubReporterOptions {
+	omitTags?: boolean;
+	title?: string;
+}
+
 export class GitHubReporter implements Reporter {
 	private readonly core: Core;
+	private readonly options: GitHubReporterOptions;
 	private readonly results: ResultMap;
 	private readonly summary: Summary;
 	private readonly recordedErrors: RecordedError[] = [];
@@ -71,8 +77,9 @@ export class GitHubReporter implements Reporter {
 	private failOnFlakyTests = false;
 	private workspace = "";
 
-	constructor(core: Core) {
+	constructor(core: Core, options: GitHubReporterOptions = {}) {
 		this.core = core;
+		this.options = options;
 		this.results = new Map();
 		this.summary = core.summary;
 	}
@@ -82,7 +89,7 @@ export class GitHubReporter implements Reporter {
 		this.tests = suite.allTests();
 		this.failOnFlakyTests = config.failOnFlakyTests;
 		this.workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-		this.summary.addHeading("🎭 Playwright Test Report", 2).addHeading("Summary", 3);
+		this.summary.addHeading(this.heading(config.shard), 2).addHeading("Summary", 3);
 
 		this.core.info(`Starting a test run with ${config.workers} workers and ${this.tests.length} tests`);
 	}
@@ -147,6 +154,12 @@ export class GitHubReporter implements Reporter {
 
 	public async onExit(): Promise<void> {
 		await this.summary.write();
+	}
+
+	private heading(shard: FullConfig["shard"]): string {
+		const title = inlineHtml(this.options.title ?? "🎭 Playwright Test Report");
+
+		return shard === null ? title : `${title} (shard ${shard.current}/${shard.total})`;
 	}
 
 	private debug(message: string) {
@@ -288,7 +301,7 @@ export class GitHubReporter implements Reporter {
 		this.summary.addHeading("Errors outside tests", 3);
 
 		for (const error of this.recordedErrors) {
-			this.summary.addDetails(escapeHtml(error.title), preformattedHtml(error));
+			this.summary.addDetails(inlineHtml(error.title), preformattedHtml(error));
 		}
 	}
 
@@ -332,25 +345,30 @@ export class GitHubReporter implements Reporter {
 		return testCase.tags.length > 0 ? testCase.tags.join(", ") : "None";
 	}
 
+	private withTags<Cell>(cells: Cell[], tags: Cell): Cell[] {
+		return this.options.omitTags === true ? cells : [...cells, tags];
+	}
+
 	private get dataRows() {
 		return this.results
 			.values()
-			.map((result) => [
-				inlineHtml(result.titlePath),
-				result.label,
-				result.duration,
-				result.retries,
-				inlineHtml(result.tags),
-			]);
+			.map((result) =>
+				this.withTags(
+					[inlineHtml(result.titlePath), result.label, result.duration, result.retries],
+					inlineHtml(result.tags),
+				),
+			);
 	}
 
 	private get columns() {
-		return [
-			{ data: "Test", header: true },
-			{ data: "Result", header: true },
-			{ data: "Duration", header: true },
-			{ data: "Retries", header: true },
+		return this.withTags(
+			[
+				{ data: "Test", header: true },
+				{ data: "Result", header: true },
+				{ data: "Duration", header: true },
+				{ data: "Retries", header: true },
+			],
 			{ data: "Tags", header: true },
-		];
+		);
 	}
 }
