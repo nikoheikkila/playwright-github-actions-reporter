@@ -1,5 +1,10 @@
 import * as os from "node:os";
-import type { Core, Summary, SummaryTableRow } from "../src/interface.ts";
+import type { AnnotationProperties, Core, Summary, SummaryTableRow } from "../src/interface.ts";
+
+interface Annotation {
+	message: string;
+	properties?: AnnotationProperties;
+}
 
 export class FakeSummary implements Summary {
 	private summaryBuffer = "";
@@ -74,6 +79,9 @@ export class FakeCore implements Core {
 	public readonly infos: string[] = [];
 	public readonly errors: string[] = [];
 	public readonly notices: string[] = [];
+	public readonly errorAnnotations: Annotation[] = [];
+	public readonly warningAnnotations: Annotation[] = [];
+	public readonly noticeAnnotations: Annotation[] = [];
 	public isFailed = false;
 
 	private debugEnabled = false;
@@ -98,12 +106,18 @@ export class FakeCore implements Core {
 		this.infos.push(message);
 	}
 
-	public notice(message: string) {
+	public notice(message: string, properties?: AnnotationProperties): void {
 		this.notices.push(message);
+		this.noticeAnnotations.push({ message, properties });
 	}
 
-	public error(message: string): void {
+	public warning(message: string, properties?: AnnotationProperties): void {
+		this.warningAnnotations.push({ message, properties });
+	}
+
+	public error(message: string, properties?: AnnotationProperties): void {
 		this.errors.push(message);
+		this.errorAnnotations.push({ message, properties });
 	}
 
 	public setFailed(message: string): never {

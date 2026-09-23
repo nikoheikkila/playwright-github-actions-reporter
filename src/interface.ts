@@ -3,9 +3,17 @@ export interface Core {
 	debug(message: string): void;
 	isDebug(): boolean;
 	info(message: string): void;
-	notice(message: string): void;
-	error(message: string): void;
+	notice(message: string, properties?: AnnotationProperties): void;
+	warning(message: string, properties?: AnnotationProperties): void;
+	error(message: string, properties?: AnnotationProperties): void;
 	setFailed(message: string): void;
+}
+
+export interface AnnotationProperties {
+	title?: string;
+	file?: string;
+	startLine?: number;
+	startColumn?: number;
 }
 
 export interface Summary {

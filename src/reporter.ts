@@ -1,13 +1,16 @@
+import { relative } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import type {
 	FullConfig,
 	FullResult,
+	Location,
 	Reporter,
 	Suite,
 	TestCase,
 	TestError,
 	TestResult,
 } from "@playwright/test/reporter";
-import type { Core, Summary } from "./interface.ts";
+import type { AnnotationProperties, Core, Summary } from "./interface.ts";
 
 type Status = TestResult["status"];
 type Outcome = ReturnType<TestCase["outcome"]>;
@@ -20,10 +23,6 @@ const statusLabels = {
 	skipped: "⚠️ Skipped",
 	interrupted: "🛑 Interrupted",
 } as const satisfies Record<Status, string>;
-
-const expectedStatusLabels: Partial<Record<Status, string>> = {
-	failed: "✅ Failed as expected",
-};
 
 interface StoredResult {
 	titlePath: string;
@@ -48,6 +47,7 @@ export class GitHubReporter implements Reporter {
 	private files = 0;
 	private tests: TestCase[] = [];
 	private failOnFlakyTests = false;
+	private workspace = "";
 
 	constructor(core: Core) {
 		this.core = core;
@@ -59,6 +59,7 @@ export class GitHubReporter implements Reporter {
 		this.files = suite.suites.reduce((total, suite) => total + suite.suites.length, 0);
 		this.tests = suite.allTests();
 		this.failOnFlakyTests = config.failOnFlakyTests;
+		this.workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
 		this.summary.addHeading("🎭 Playwright Test Report", 2).addHeading("Summary", 3);
 
 		this.core.info(`Starting a test run with ${config.workers} workers and ${this.tests.length} tests`);
@@ -102,6 +103,7 @@ export class GitHubReporter implements Reporter {
 		const counts = this.counts();
 		this.core.notice(`🎭  ${counts.passed} out of ${this.tests.length} test(s) passed (${this.duration(result)})`);
 
+		this.emitAnnotations();
 		this.collectSummaryResults(counts);
 		this.collectDetailedResults();
 
@@ -140,6 +142,51 @@ export class GitHubReporter implements Reporter {
 		return interrupted ? "interrupted" : outcome;
 	}
 
+	private emitAnnotations() {
+		for (const test of this.tests) {
+			const result = test.results.at(-1);
+
+			if (result !== undefined) {
+				this.annotate(test, result);
+			}
+		}
+	}
+
+	private annotate(test: TestCase, result: TestResult) {
+		const outcome = this.outcome(test);
+
+		if (outcome === "unexpected") {
+			const errors: TestError[] =
+				result.errors.length > 0 ? result.errors : [{ message: this.unexpectedStatus(test, result) }];
+
+			for (const { message, value, location } of errors) {
+				this.core.error(
+					stripVTControlCharacters(message ?? value ?? ""),
+					this.annotation(test, location ?? test.location),
+				);
+			}
+		}
+
+		if (outcome === "flaky") {
+			this.core.warning(this.label(outcome, result), this.annotation(test, test.location));
+		}
+	}
+
+	private unexpectedStatus({ expectedStatus }: TestCase, { status }: TestResult): string {
+		return status === "passed" && expectedStatus === "failed"
+			? "Expected to fail, but passed."
+			: `Unexpected status: ${status}`;
+	}
+
+	private annotation(test: TestCase, { file, line, column }: Location): AnnotationProperties {
+		return {
+			title: this.titlePath(test),
+			file: relative(this.workspace, file),
+			startLine: line,
+			startColumn: column,
+		};
+	}
+
 	private collectSummaryResults(counts: Counts) {
 		this.summary.addList([
 			`📁 <strong>${this.files}</strong> test files total`,
@@ -173,11 +220,7 @@ export class GitHubReporter implements Reporter {
 			return `🔁 Flaky (${retry + 1} attempts)`;
 		}
 
-		if (outcome === "expected") {
-			return expectedStatusLabels[status] ?? statusLabels[status];
-		}
-
-		return statusLabels[status];
+		return outcome === "expected" && status === "failed" ? "✅ Failed as expected" : statusLabels[status];
 	}
 
 	private duration(result: TestResult | FullResult): string {

@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { FullConfig, FullProject, FullResult, Suite, TestCase, TestResult } from "@playwright/test/reporter";
+import type {
+	FullConfig,
+	FullProject,
+	FullResult,
+	Suite,
+	TestCase,
+	TestError,
+	TestResult,
+} from "@playwright/test/reporter";
 
 export function createStubConfig(overrides: Partial<FullConfig> = {}): FullConfig {
 	return {
@@ -115,6 +123,14 @@ export function createStubTestResult(overrides: Partial<TestResult> = {}): TestR
 		stdout: [],
 		steps: [],
 		workerIndex: 0,
+		...overrides,
+	};
+}
+
+export function createStubTestError(overrides: Partial<TestError> = {}): TestError {
+	return {
+		message: "Error message",
+		location: { file: "/path/to/test.ts", line: 10, column: 5 },
 		...overrides,
 	};
 }
