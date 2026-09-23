@@ -10,6 +10,7 @@ import type {
 	TestError,
 	TestResult,
 	TestStep,
+	WorkerInfo,
 } from "@playwright/test/reporter";
 import type { AnnotationProperties, Core, Summary } from "./interface.ts";
 
@@ -43,13 +44,27 @@ interface ErrorMessage {
 	location?: Location;
 }
 
+interface RecordedError extends ErrorMessage {
+	title: string;
+}
+
+const lineBreaks = /\r\n|\r|\n/g;
+
 const escapeHtml = (text: string): string =>
 	text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+const inlineHtml = (text: string): string => escapeHtml(text).replaceAll(lineBreaks, " ");
+
+const preformattedHtml = ({ message, snippet }: ErrorMessage): string =>
+	(snippet === undefined ? [message] : [message, snippet])
+		.map((text) => `<pre>${escapeHtml(text).replaceAll(lineBreaks, "&#10;")}</pre>`)
+		.join("");
 
 export class GitHubReporter implements Reporter {
 	private readonly core: Core;
 	private readonly results: ResultMap;
 	private readonly summary: Summary;
+	private readonly recordedErrors: RecordedError[] = [];
 
 	private files = 0;
 	private tests: TestCase[] = [];
@@ -102,8 +117,8 @@ export class GitHubReporter implements Reporter {
 		this.core.info(chunk.toString("utf-8"));
 	}
 
-	public onError(error: TestError): never {
-		throw error;
+	public onError(error: TestError, workerInfo?: WorkerInfo): void {
+		this.recordedErrors.push({ title: this.errorTitle(workerInfo), ...this.errorMessage(error, "Unknown error") });
 	}
 
 	public onEnd(result: FullResult): void {
@@ -119,8 +134,14 @@ export class GitHubReporter implements Reporter {
 			this.collectFailureDetails(unexpectedTests);
 		}
 
+		if (this.recordedErrors.length > 0) {
+			this.collectErrorDetails();
+		}
+
 		if (result.status !== "passed") {
 			this.core.setFailed("Test run failed. See the job summary for detailed information.");
+		} else if (this.recordedErrors.length > 0) {
+			this.core.setFailed("Errors outside tests detected. See the job summary for details.");
 		}
 	}
 
@@ -162,6 +183,10 @@ export class GitHubReporter implements Reporter {
 				this.annotate(test, result);
 			}
 		}
+
+		for (const { title, message, location } of this.recordedErrors) {
+			this.core.error(message, this.annotation(title, location));
+		}
 	}
 
 	private annotate(test: TestCase, result: TestResult) {
@@ -169,23 +194,33 @@ export class GitHubReporter implements Reporter {
 
 		if (outcome === "unexpected") {
 			for (const { message, location } of this.errorMessages(test, result)) {
-				this.core.error(message, this.annotation(test, location ?? test.location));
+				this.core.error(message, this.annotation(this.titlePath(test), location ?? test.location));
 			}
 		}
 
 		if (outcome === "flaky") {
-			this.core.warning(this.label(outcome, result), this.annotation(test, test.location));
+			this.core.warning(this.label(outcome, result), this.annotation(this.titlePath(test), test.location));
 		}
 	}
 
 	private errorMessages(test: TestCase, result: TestResult): ErrorMessage[] {
 		const errors: TestError[] = result.errors.length > 0 ? result.errors : [{}];
 
-		return errors.map(({ message, value, snippet, location }) => ({
-			message: stripVTControlCharacters(message ?? value ?? this.unexpectedStatus(test, result)),
+		return errors.map((error) => this.errorMessage(error, this.unexpectedStatus(test, result)));
+	}
+
+	private errorMessage({ message, value, snippet, location }: TestError, fallback: string): ErrorMessage {
+		return {
+			message: stripVTControlCharacters(message ?? value ?? fallback),
 			...(snippet === undefined ? {} : { snippet: stripVTControlCharacters(snippet) }),
 			location,
-		}));
+		};
+	}
+
+	private errorTitle(workerInfo?: WorkerInfo): string {
+		const project = workerInfo?.project.name ?? "";
+
+		return project.length > 0 ? `Error outside tests (${project})` : "Error outside tests";
 	}
 
 	private unexpectedStatus({ expectedStatus }: TestCase, { status }: TestResult): string {
@@ -194,12 +229,16 @@ export class GitHubReporter implements Reporter {
 			: `Unexpected status: ${status}`;
 	}
 
-	private annotation(test: TestCase, { file, line, column }: Location): AnnotationProperties {
+	private annotation(title: string, location?: Location): AnnotationProperties {
+		if (location === undefined) {
+			return { title };
+		}
+
 		return {
-			title: this.titlePath(test),
-			file: relative(this.workspace, file),
-			startLine: line,
-			startColumn: column,
+			title,
+			file: relative(this.workspace, location.file),
+			startLine: location.line,
+			startColumn: location.column,
 		};
 	}
 
@@ -234,24 +273,29 @@ export class GitHubReporter implements Reporter {
 			const result = test.results.at(-1);
 
 			if (result !== undefined) {
-				this.summary.addDetails(escapeHtml(this.titlePath(test)), this.failureDetails(test, result));
+				this.summary.addDetails(`❌ ${inlineHtml(this.titlePath(test))}`, this.failureDetails(test, result));
 			}
 		}
 	}
 
 	private failureDetails(test: TestCase, result: TestResult): string {
-		const blocks = this.errorMessages(test, result)
-			.flatMap(({ message, snippet }) => (snippet === undefined ? [message] : [message, snippet]))
-			.map((text) => `<pre>${escapeHtml(text).replaceAll("\n", "&#10;")}</pre>`)
-			.join("");
+		const blocks = this.errorMessages(test, result).map(preformattedHtml).join("");
 
 		return `<div>${this.renderFailingStep(result)}${blocks}</div>`;
+	}
+
+	private collectErrorDetails() {
+		this.summary.addHeading("Errors outside tests", 3);
+
+		for (const error of this.recordedErrors) {
+			this.summary.addDetails(escapeHtml(error.title), preformattedHtml(error));
+		}
 	}
 
 	private renderFailingStep({ steps }: TestResult): string {
 		const chain = this.failingSteps(steps);
 
-		return chain.length > 0 ? `<p><strong>Step:</strong> <code>${escapeHtml(chain.join(" » "))}</code></p>` : "";
+		return chain.length > 0 ? `<p><strong>Step:</strong> <code>${inlineHtml(chain.join(" » "))}</code></p>` : "";
 	}
 
 	private failingSteps(steps: TestStep[]): string[] {
@@ -292,11 +336,11 @@ export class GitHubReporter implements Reporter {
 		return this.results
 			.values()
 			.map((result) => [
-				escapeHtml(result.titlePath),
+				inlineHtml(result.titlePath),
 				result.label,
 				result.duration,
 				result.retries,
-				escapeHtml(result.tags),
+				inlineHtml(result.tags),
 			]);
 	}
 

@@ -8,6 +8,7 @@ import type {
 	TestError,
 	TestResult,
 	TestStep,
+	WorkerInfo,
 } from "@playwright/test/reporter";
 
 export function createStubConfig(overrides: Partial<FullConfig> = {}): FullConfig {
@@ -36,6 +37,37 @@ export function createStubConfig(overrides: Partial<FullConfig> = {}): FullConfi
 		version: "",
 		webServer: null,
 		workers: 0,
+		...overrides,
+	};
+}
+
+export function createStubProject(overrides: Partial<FullProject> = {}): FullProject {
+	return {
+		dependencies: [],
+		grep: /.*/,
+		grepInvert: null,
+		ignoreSnapshots: false,
+		metadata: {},
+		name: "Project",
+		outputDir: "",
+		repeatEach: 1,
+		retries: 0,
+		snapshotDir: "",
+		testDir: "",
+		testIgnore: [],
+		testMatch: [],
+		timeout: 0,
+		use: {},
+		...overrides,
+	};
+}
+
+export function createStubWorkerInfo(overrides: Partial<WorkerInfo> = {}): WorkerInfo {
+	return {
+		config: createStubConfig(),
+		parallelIndex: 0,
+		project: createStubProject(),
+		workerIndex: 0,
 		...overrides,
 	};
 }

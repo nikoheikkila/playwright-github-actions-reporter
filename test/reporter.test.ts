@@ -1,21 +1,32 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { join, relative } from "node:path";
-import type { FullConfig, FullResult, Suite, TestCase, TestError, TestResult } from "@playwright/test/reporter";
+import type {
+	FullConfig,
+	FullResult,
+	Suite,
+	TestCase,
+	TestError,
+	TestResult,
+	WorkerInfo,
+} from "@playwright/test/reporter";
 import { GitHubReporter } from "../src/reporter.ts";
 import { FakeCore } from "./fakes.ts";
 import {
 	createStubConfig,
 	createStubFullResult,
+	createStubProject,
 	createStubSuite,
 	createStubTestCase,
 	createStubTestError,
 	createStubTestResult,
 	createStubTestStep,
+	createStubWorkerInfo,
 } from "./stubs.ts";
 
 type Status = TestResult["status"];
 
 describe("Playwright GitHub Actions Reporter", () => {
+	const originalWorkspace = process.env.GITHUB_WORKSPACE;
 	let core: FakeCore;
 	let reporter: GitHubReporter;
 
@@ -26,8 +37,17 @@ describe("Playwright GitHub Actions Reporter", () => {
 	}
 
 	beforeEach(() => {
+		process.env.GITHUB_WORKSPACE = "/path/to";
 		core = new FakeCore();
 		reporter = new GitHubReporter(core);
+	});
+
+	afterEach(() => {
+		if (originalWorkspace === undefined) {
+			delete process.env.GITHUB_WORKSPACE;
+		} else {
+			process.env.GITHUB_WORKSPACE = originalWorkspace;
+		}
 	});
 
 	const count = (summary: string, label: string): number =>
@@ -43,8 +63,11 @@ describe("Playwright GitHub Actions Reporter", () => {
 			}
 		}
 
-		reporter.onEnd(fullResult ?? createStubFullResult());
-		await reporter.onExit();
+		try {
+			reporter.onEnd(fullResult ?? createStubFullResult());
+		} finally {
+			await reporter.onExit();
+		}
 
 		return {
 			summary: core.summary.stringify(),
@@ -605,6 +628,18 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 				expect(summary).toMatch(/<td>Tests » example.spec.ts » example test<\/td>/);
 			});
+
+			test("multi-line title is collapsed to a single line", async () => {
+				const { summary } = await runTestCases(
+					createStubTestCase({
+						titlePath(): string[] {
+							return ["Tests", "example.spec.ts", "multi\r\nline\rexample\ntest"];
+						},
+					}),
+				);
+
+				expect(summary).toContain("<td>Tests » example.spec.ts » multi line example test</td>");
+			});
 		});
 
 		describe("When displaying test results", () => {
@@ -871,7 +906,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 	});
 
 	describe("Annotations", () => {
-		const originalWorkspace = process.env.GITHUB_WORKSPACE;
 		const titlePath = ["Tests", "example.spec.ts", "example test"];
 		const location = { file: "/path/to/example.spec.ts", line: 3, column: 7 };
 
@@ -883,18 +917,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 				},
 				results: [createStubTestResult({ status: "failed", errors: [error] })],
 			});
-
-		beforeEach(() => {
-			process.env.GITHUB_WORKSPACE = "/path/to";
-		});
-
-		afterEach(() => {
-			if (originalWorkspace === undefined) {
-				delete process.env.GITHUB_WORKSPACE;
-			} else {
-				process.env.GITHUB_WORKSPACE = originalWorkspace;
-			}
-		});
 
 		test("emits error annotation for unexpected test with error location", async () => {
 			await runTestCases(
@@ -1155,10 +1177,10 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(summary).toContain(`</details>${failuresHeading}`);
 			expect(failureDetails(summary).match(/<details>/g)).toHaveLength(2);
 			expect(failureDetails(summary)).toContain(
-				"<details><summary>Tests » example.spec.ts » first failing test</summary><div><pre>Error message</pre></div></details>",
+				"<details><summary>❌ Tests » example.spec.ts » first failing test</summary><div><pre>Error message</pre></div></details>",
 			);
 			expect(failureDetails(summary)).toContain(
-				"<details><summary>Tests » example.spec.ts » first timed out test</summary><div><pre>Error message</pre></div></details>",
+				"<details><summary>❌ Tests » example.spec.ts » first timed out test</summary><div><pre>Error message</pre></div></details>",
 			);
 		});
 
@@ -1263,7 +1285,43 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const { summary } = await runTestCases(createFailingTestCase({}, "renders <dangerous> path"));
 
 			expect(failureDetails(summary)).toContain(
-				"<summary>Tests » example.spec.ts » renders &lt;dangerous&gt; path</summary>",
+				"<summary>❌ Tests » example.spec.ts » renders &lt;dangerous&gt; path</summary>",
+			);
+		});
+
+		test("collapses multi-line test title to single space", async () => {
+			const { summary } = await runTestCases(createFailingTestCase({}, "multi\r\nline\rexample\ntest"));
+
+			expect(failureDetails(summary)).toContain(
+				"<summary>❌ Tests » example.spec.ts » multi line example test</summary>",
+			);
+		});
+
+		test("collapses multi-line step title and subtitle in the step chain", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					steps: [
+						createStubTestStep({
+							title: "Add\nto cart",
+							subtitle: "SKU\r\n42",
+							error: createStubTestError(),
+						}),
+					],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain("<code>Add to cart (SKU 42)</code>");
+		});
+
+		test("normalises \\r\\n and \\r line endings in message and snippet", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					errors: [createStubTestError({ message: "first\r\nsecond\rthird", snippet: "  10 | a\r\n> 11 | b" })],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain(
+				"<pre>first&#10;second&#10;third</pre><pre>  10 | a&#10;&gt; 11 | b</pre>",
 			);
 		});
 
@@ -1299,6 +1357,170 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			expect(failureDetails(summary)).toContain("<div><pre>Error message</pre></div>");
 			expect(summary).not.toContain("/path/to/example.spec.ts");
+		});
+	});
+
+	describe("Errors outside tests", () => {
+		const errorsHeading = "<h3>Errors outside tests</h3>";
+		const errorsFailure = "Errors outside tests detected. See the job summary for details.";
+
+		const finishRun = async () => {
+			try {
+				await runTestCases();
+			} catch (error: unknown) {
+				if (!(error instanceof Error && error.message === errorsFailure)) {
+					throw error;
+				}
+			}
+
+			return { summary: core.summary.stringify() };
+		};
+
+		const errorDetails = (summary: string): string => summary.slice(summary.indexOf(errorsHeading));
+
+		const createNamedWorkerInfo = (name: string): WorkerInfo =>
+			createStubWorkerInfo({ project: createStubProject({ name }) });
+
+		test("does not throw on onError", () => {
+			expect(() => reporter.onError(createStubTestError())).not.toThrow();
+		});
+
+		test("emits error annotation for recorded error", async () => {
+			reporter.onError(
+				createStubTestError({
+					message: "Global setup failed",
+					location: { file: "/path/to/global-setup.ts", line: 4, column: 2 },
+				}),
+			);
+
+			await finishRun();
+
+			expect(core.errorAnnotations).toContainEqual({
+				message: "Global setup failed",
+				properties: {
+					title: "Error outside tests",
+					file: "global-setup.ts",
+					startLine: 4,
+					startColumn: 2,
+				},
+			});
+		});
+
+		test("includes project name in annotation title when present", async () => {
+			reporter.onError(createStubTestError(), createNamedWorkerInfo("chromium"));
+
+			await finishRun();
+
+			expect(core.errorAnnotations).toContainEqual(
+				expect.objectContaining({
+					properties: expect.objectContaining({ title: "Error outside tests (chromium)" }),
+				}),
+			);
+		});
+
+		test.each([
+			["no worker info", undefined],
+			["an unnamed project", createNamedWorkerInfo("")],
+		])("omits project name from annotation title for %s", async (_, workerInfo?: WorkerInfo) => {
+			reporter.onError(createStubTestError(), workerInfo);
+
+			await finishRun();
+
+			expect(core.errorAnnotations).toContainEqual(
+				expect.objectContaining({ properties: expect.objectContaining({ title: "Error outside tests" }) }),
+			);
+		});
+
+		test("omits file properties when error has no location", async () => {
+			reporter.onError(createStubTestError({ location: undefined }));
+
+			await finishRun();
+
+			expect(core.errorAnnotations).toContainEqual({
+				message: "Error message",
+				properties: { title: "Error outside tests" },
+			});
+		});
+
+		test.each([
+			["value", { message: undefined, value: "Thrown value" }, "Thrown value"],
+			["'Unknown error'", { message: undefined, value: undefined }, "Unknown error"],
+		])("falls back to %s when error has no message", async (_, overrides: Partial<TestError>, expected: string) => {
+			reporter.onError(createStubTestError(overrides));
+
+			await finishRun();
+
+			expect(core.errorAnnotations).toContainEqual(expect.objectContaining({ message: expected }));
+		});
+
+		test("renders Errors section when errors were recorded", async () => {
+			reporter.onError(createStubTestError());
+
+			const { summary } = await finishRun();
+
+			expect(summary).toContain(`</details>${errorsHeading}`);
+		});
+
+		test("does not render Errors section when no errors were recorded", async () => {
+			const { summary } = await finishRun();
+
+			expect(summary).not.toContain(errorsHeading);
+		});
+
+		test("renders one details block per error", async () => {
+			reporter.onError(createStubTestError({ message: "First error" }));
+			reporter.onError(createStubTestError({ message: "Second error" }), createNamedWorkerInfo("firefox"));
+
+			const { summary } = await finishRun();
+
+			expect(errorDetails(summary).match(/<details>/g)).toHaveLength(2);
+			expect(errorDetails(summary)).toContain(
+				"<details><summary>Error outside tests</summary><pre>First error</pre></details>",
+			);
+			expect(errorDetails(summary)).toContain(
+				"<details><summary>Error outside tests (firefox)</summary><pre>Second error</pre></details>",
+			);
+		});
+
+		test("renders snippet when present", async () => {
+			reporter.onError(createStubTestError({ snippet: "> 4 | throw new Error();" }));
+
+			const { summary } = await finishRun();
+
+			expect(errorDetails(summary)).toContain("<pre>Error message</pre><pre>&gt; 4 | throw new Error();</pre>");
+		});
+
+		test("never renders stack in error details", async () => {
+			reporter.onError(createStubTestError({ stack: "Error: Error message\n    at /path/to/global-setup.ts:4:2" }));
+
+			const { summary } = await finishRun();
+
+			expect(errorDetails(summary)).toContain("<pre>Error message</pre></details>");
+			expect(summary).not.toContain("global-setup.ts");
+		});
+
+		test("calls setFailed when errors recorded even if result.status passed", async () => {
+			reporter.onError(createStubTestError());
+
+			await finishRun();
+
+			expect(core.errors).toContain(errorsFailure);
+		});
+
+		test("HTML-escapes error title with project name", async () => {
+			reporter.onError(createStubTestError(), createNamedWorkerInfo("<chromium> & more"));
+
+			const { summary } = await finishRun();
+
+			expect(errorDetails(summary)).toContain("<summary>Error outside tests (&lt;chromium&gt; &amp; more)</summary>");
+		});
+
+		test("normalises \\r\\n and \\r to \\n in error message", async () => {
+			reporter.onError(createStubTestError({ message: "first\r\nsecond\rthird\nfourth" }));
+
+			const { summary } = await finishRun();
+
+			expect(errorDetails(summary)).toContain("<pre>first&#10;second&#10;third&#10;fourth</pre>");
 		});
 	});
 
@@ -1414,15 +1636,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			reporter.onStdErr("stderr");
 
 			expect(core.infos).toContain("stderr");
-		});
-
-		test("rethrows unhandled errors", () => {
-			const message = "unhandled error";
-			const error: TestError = {
-				message,
-			};
-
-			expect(() => reporter.onError(error)).toThrow(message);
 		});
 
 		test("marks the workflow job as failed when the test suite fails", async () => {
