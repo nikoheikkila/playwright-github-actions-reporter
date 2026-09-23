@@ -9,17 +9,25 @@ import type {
 } from "@playwright/test/reporter";
 import type { Core, Summary } from "./interface.ts";
 
+type Status = TestResult["status"];
+type Outcome = ReturnType<TestCase["outcome"]>;
+
 const statusLabels = {
 	passed: "✅ Passed",
 	failed: "❌ Failed",
 	timedOut: "⏰ Timed out",
 	skipped: "⚠️ Skipped",
 	interrupted: "🛑 Interrupted",
-} as const satisfies Record<TestResult["status"], string>;
+} as const satisfies Record<Status, string>;
+
+const expectedStatusLabels: Partial<Record<Status, string>> = {
+	failed: "✅ Failed as expected",
+	timedOut: "✅ Timed out as expected",
+};
 
 interface StoredResult {
 	titlePath: string;
-	status: TestResult["status"];
+	label: string;
 	duration: string;
 	retries: string;
 	tags: string;
@@ -27,20 +35,19 @@ interface StoredResult {
 
 type ResultMap = Map<TestCase["id"], StoredResult>;
 
+type Counts = Record<"passed" | "failed" | "flaky" | "skipped", number>;
+
+const escapeHtml = (text: string): string =>
+	text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
 export class GitHubReporter implements Reporter {
 	private readonly core: Core;
 	private readonly results: ResultMap;
 	private readonly summary: Summary;
 
 	private files = 0;
-	private total = 0;
-	private readonly counts: Record<TestResult["status"], number> = {
-		passed: 0,
-		failed: 0,
-		timedOut: 0,
-		skipped: 0,
-		interrupted: 0,
-	};
+	private tests: TestCase[] = [];
+	private failOnFlakyTests = false;
 
 	constructor(core: Core) {
 		this.core = core;
@@ -50,10 +57,11 @@ export class GitHubReporter implements Reporter {
 
 	public onBegin(config: FullConfig, suite: Suite): void {
 		this.files = suite.suites.reduce((total, suite) => total + suite.suites.length, 0);
-		this.total = suite.allTests().length;
+		this.tests = suite.allTests();
+		this.failOnFlakyTests = config.failOnFlakyTests;
 		this.summary.addHeading("🎭 Playwright Test Report", 2).addHeading("Summary", 3);
 
-		this.core.info(`Starting a test run with ${config.workers} workers and ${this.total} tests`);
+		this.core.info(`Starting a test run with ${config.workers} workers and ${this.tests.length} tests`);
 	}
 
 	public onTestBegin(test: TestCase) {
@@ -62,12 +70,12 @@ export class GitHubReporter implements Reporter {
 
 	public onTestEnd(test: TestCase, result: TestResult): void {
 		const titlePath = this.titlePath(test);
+		const outcome = test.outcome();
 		this.debug(`Finished test '${titlePath}' with result '${result.status}'`);
-		this.counts[result.status]++;
 
 		this.results.set(test.id, {
 			titlePath,
-			status: result.status,
+			label: this.label(outcome, result),
 			duration: this.duration(result),
 			retries: this.retries(result),
 			tags: this.tags(test),
@@ -91,9 +99,10 @@ export class GitHubReporter implements Reporter {
 	}
 
 	public onEnd(result: FullResult): void {
-		this.core.notice(`🎭  ${this.counts.passed} out of ${this.total} test(s) passed (${this.duration(result)})`);
+		const counts = this.counts();
+		this.core.notice(`🎭  ${counts.passed} out of ${this.tests.length} test(s) passed (${this.duration(result)})`);
 
-		this.collectSummaryResults();
+		this.collectSummaryResults(counts);
 		this.collectDetailedResults();
 
 		if (result.status !== "passed") {
@@ -111,15 +120,31 @@ export class GitHubReporter implements Reporter {
 		}
 	}
 
-	private collectSummaryResults() {
-		return this.summary.addList([
+	private counts(): Counts {
+		const outcomes = this.tests.map((test) => test.outcome());
+		const count = (outcome: Outcome) => outcomes.filter((candidate) => candidate === outcome).length;
+
+		return {
+			passed: count("expected"),
+			failed: count("unexpected"),
+			flaky: count("flaky"),
+			skipped: count("skipped"),
+		};
+	}
+
+	private collectSummaryResults(counts: Counts) {
+		this.summary.addList([
 			`📁 <strong>${this.files}</strong> test files total`,
-			`🧪 <strong>${this.total}</strong> test cases total`,
-			`✅ <strong>${this.counts.passed}</strong> tests passed`,
-			`❌ <strong>${this.counts.failed}</strong> tests failed`,
-			`⏰ <strong>${this.counts.timedOut}</strong> tests timed out`,
-			`⚠️ <strong>${this.counts.skipped}</strong> tests skipped`,
+			`🧪 <strong>${this.tests.length}</strong> test cases total`,
+			`✅ <strong>${counts.passed}</strong> tests passed`,
+			`❌ <strong>${counts.failed}</strong> tests failed`,
+			`🔁 <strong>${counts.flaky}</strong> tests flaky`,
+			`⚠️ <strong>${counts.skipped}</strong> tests skipped`,
 		]);
+
+		if (this.failOnFlakyTests && counts.flaky > 0) {
+			this.summary.addRaw("<p>🔁 Flaky tests fail the run because <code>failOnFlakyTests</code> is enabled.</p>", true);
+		}
 	}
 
 	private collectDetailedResults() {
@@ -132,6 +157,18 @@ export class GitHubReporter implements Reporter {
 
 	private titlePath(test: TestCase) {
 		return test.titlePath().filter(Boolean).join(" » ");
+	}
+
+	private label(outcome: Outcome, { status, retry }: TestResult): string {
+		if (outcome === "flaky") {
+			return `🔁 Flaky (passed on retry ${retry})`;
+		}
+
+		if (outcome === "expected") {
+			return expectedStatusLabels[status] ?? statusLabels[status];
+		}
+
+		return statusLabels[status];
 	}
 
 	private duration(result: TestResult | FullResult): string {
@@ -149,7 +186,13 @@ export class GitHubReporter implements Reporter {
 	private get dataRows() {
 		return this.results
 			.values()
-			.map((result) => [result.titlePath, statusLabels[result.status], result.duration, result.retries, result.tags]);
+			.map((result) => [
+				escapeHtml(result.titlePath),
+				result.label,
+				result.duration,
+				result.retries,
+				escapeHtml(result.tags),
+			]);
 	}
 
 	private get columns() {

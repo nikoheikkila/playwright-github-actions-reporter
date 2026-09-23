@@ -53,6 +53,23 @@ export function createStubSuite(overrides: Partial<Suite> = {}): Suite {
 	};
 }
 
+type Outcome = ReturnType<TestCase["outcome"]>;
+
+function computeOutcome({ results, expectedStatus }: Pick<TestCase, "results" | "expectedStatus">): Outcome {
+	const attempts = results.filter(({ status }) => status !== "interrupted" && status !== "skipped");
+	const unexpected = attempts.filter(({ status }) => status !== expectedStatus);
+
+	if (attempts.length === 0) {
+		return "skipped";
+	}
+
+	if (unexpected.length === 0) {
+		return "expected";
+	}
+
+	return unexpected.length === attempts.length ? "unexpected" : "flaky";
+}
+
 export function createStubTestCase(overrides: Partial<TestCase> = {}): TestCase {
 	return {
 		annotations: [],
@@ -74,8 +91,8 @@ export function createStubTestCase(overrides: Partial<TestCase> = {}): TestCase 
 		ok(): boolean {
 			throw new Error("Function not implemented.");
 		},
-		outcome(): "skipped" | "expected" | "unexpected" | "flaky" {
-			throw new Error("Function not implemented.");
+		outcome(): Outcome {
+			return computeOutcome(this);
 		},
 		titlePath(): string[] {
 			return [];

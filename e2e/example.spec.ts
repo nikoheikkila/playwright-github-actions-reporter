@@ -17,6 +17,10 @@ test.fail("timed out test", tag("timeOut"), async () => {
 	await new Promise((resolve) => setTimeout(resolve, 200));
 });
 
+test("flaky test", tag("flaky"), () => {
+	expect(test.info().retry).toBe(1);
+});
+
 test.skip("skipped test", tag("skip"), () => {
 	expect(1 + 1).toBe(2);
 });
