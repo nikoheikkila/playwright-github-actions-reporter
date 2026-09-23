@@ -21,6 +21,7 @@ export interface Summary {
 	addHeading(text: string, level: number): Summary;
 	addList(items: string[]): Summary;
 	addTable(rows: SummaryTableRow[]): Summary;
+	addDetails(label: string, html: string): Summary;
 	write(): Promise<Summary>;
 	stringify(): string;
 }

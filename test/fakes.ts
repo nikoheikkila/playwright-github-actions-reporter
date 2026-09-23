@@ -62,6 +62,12 @@ export class FakeSummary implements Summary {
 		return this;
 	}
 
+	public addDetails(label: string, html: string): Summary {
+		this.summaryBuffer += `<details><summary>${label}</summary>${html}</details>`;
+
+		return this;
+	}
+
 	public async write(): Promise<Summary> {
 		this.storedSummary = this.summaryBuffer;
 

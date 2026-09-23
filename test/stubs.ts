@@ -7,6 +7,7 @@ import type {
 	TestCase,
 	TestError,
 	TestResult,
+	TestStep,
 } from "@playwright/test/reporter";
 
 export function createStubConfig(overrides: Partial<FullConfig> = {}): FullConfig {
@@ -123,6 +124,23 @@ export function createStubTestResult(overrides: Partial<TestResult> = {}): TestR
 		stdout: [],
 		steps: [],
 		workerIndex: 0,
+		...overrides,
+	};
+}
+
+export function createStubTestStep(overrides: Partial<TestStep> = {}): TestStep {
+	return {
+		annotations: [],
+		attachments: [],
+		category: "test.step",
+		duration: 0,
+		error: undefined,
+		startTime: new Date(),
+		steps: [],
+		title: "Step title",
+		titlePath(): string[] {
+			return [];
+		},
 		...overrides,
 	};
 }

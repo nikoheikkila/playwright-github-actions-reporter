@@ -21,6 +21,16 @@ test("flaky test", tag("flaky"), () => {
 	expect(test.info().retry).toBe(1);
 });
 
+test("failing step test", tag("step"), async () => {
+	await test.step(
+		"Add to cart",
+		() => {
+			expect(1 + 1).toBe(3);
+		},
+		{ subtitle: "SKU 42" },
+	);
+});
+
 test.skip("skipped test", tag("skip"), () => {
 	expect(1 + 1).toBe(2);
 });

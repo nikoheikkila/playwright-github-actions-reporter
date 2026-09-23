@@ -10,6 +10,7 @@ import {
 	createStubTestCase,
 	createStubTestError,
 	createStubTestResult,
+	createStubTestStep,
 } from "./stubs.ts";
 
 type Status = TestResult["status"];
@@ -49,6 +50,16 @@ describe("Playwright GitHub Actions Reporter", () => {
 			summary: core.summary.stringify(),
 		};
 	};
+
+	const runTestCases = (...testCases: TestCase[]) =>
+		runTests({
+			config: createStubConfig(),
+			suite: createStubSuite({
+				allTests(): TestCase[] {
+					return testCases;
+				},
+			}),
+		});
 
 	describe("Full Report Snapshot", () => {
 		test("matches expected structure", async () => {
@@ -864,16 +875,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 		const titlePath = ["Tests", "example.spec.ts", "example test"];
 		const location = { file: "/path/to/example.spec.ts", line: 3, column: 7 };
 
-		const runTestCases = (...testCases: TestCase[]) =>
-			runTests({
-				config: createStubConfig(),
-				suite: createStubSuite({
-					allTests(): TestCase[] {
-						return testCases;
-					},
-				}),
-			});
-
 		const createFailingTestCase = (error: TestError) =>
 			createStubTestCase({
 				location,
@@ -938,6 +939,12 @@ describe("Playwright GitHub Actions Reporter", () => {
 			await runTestCases(createFailingTestCase(createStubTestError({ message: "\x1b[31mRed\x1b[0m" })));
 
 			expect(core.errorAnnotations).toContainEqual(expect.objectContaining({ message: "Red" }));
+		});
+
+		test("falls back to the unexpected status when error has neither message nor value", async () => {
+			await runTestCases(createFailingTestCase(createStubTestError({ message: undefined, value: undefined })));
+
+			expect(core.errorAnnotations).toContainEqual(expect.objectContaining({ message: "Unexpected status: failed" }));
 		});
 
 		test("emits one annotation per error when result has multiple errors", async () => {
@@ -1104,6 +1111,194 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(core.errorAnnotations).toContainEqual(
 				expect.objectContaining({ properties: expect.objectContaining({ file: relative(process.cwd(), file) }) }),
 			);
+		});
+	});
+
+	describe("Failure details", () => {
+		const failuresHeading = "<h3>Failures</h3>";
+
+		const createFailingTestCase = (result: Partial<TestResult> = {}, title = "example test") =>
+			createStubTestCase({
+				titlePath(): string[] {
+					return ["Tests", "example.spec.ts", title];
+				},
+				results: [createStubTestResult({ status: "failed", errors: [createStubTestError()], ...result })],
+			});
+
+		const failureDetails = (summary: string): string => summary.slice(summary.indexOf(failuresHeading));
+
+		test("does not render failure details when no tests failed", async () => {
+			const { summary } = await runTestCases(
+				createStubTestCase(),
+				createStubTestCase({
+					expectedStatus: "failed",
+					results: [createStubTestResult({ status: "failed", errors: [createStubTestError()] })],
+				}),
+				createStubTestCase({
+					results: [
+						createStubTestResult({ status: "failed", retry: 0, errors: [createStubTestError()] }),
+						createStubTestResult({ status: "passed", retry: 1 }),
+					],
+				}),
+			);
+
+			expect(summary).not.toContain(failuresHeading);
+		});
+
+		test("renders one details block per unexpected test", async () => {
+			const { summary } = await runTestCases(
+				createStubTestCase(),
+				createFailingTestCase({}, "first failing test"),
+				createFailingTestCase({ status: "timedOut" }, "first timed out test"),
+			);
+
+			expect(summary).toContain(`</details>${failuresHeading}`);
+			expect(failureDetails(summary).match(/<details>/g)).toHaveLength(2);
+			expect(failureDetails(summary)).toContain(
+				"<details><summary>Tests » example.spec.ts » first failing test</summary><div><pre>Error message</pre></div></details>",
+			);
+			expect(failureDetails(summary)).toContain(
+				"<details><summary>Tests » example.spec.ts » first timed out test</summary><div><pre>Error message</pre></div></details>",
+			);
+		});
+
+		test("renders step chain with subtitle when present", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					steps: [
+						createStubTestStep({ title: "Open cart" }),
+						createStubTestStep({
+							title: "Add to cart",
+							subtitle: "SKU 42",
+							error: createStubTestError(),
+							steps: [createStubTestStep({ title: 'Expect "toBe"', error: createStubTestError() })],
+						}),
+					],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain(
+				'<div><p><strong>Step:</strong> <code>Add to cart (SKU 42) » Expect "toBe"</code></p><pre>Error message</pre></div>',
+			);
+		});
+
+		test("renders step chain without subtitle when absent", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					steps: [createStubTestStep({ title: "Add to cart", error: createStubTestError() })],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain("<p><strong>Step:</strong> <code>Add to cart</code></p>");
+		});
+
+		test("renders multiple errors from the same result", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					errors: [
+						createStubTestError({ message: "First error" }),
+						createStubTestError({ message: undefined, value: "Second error" }),
+					],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain("<div><pre>First error</pre><pre>Second error</pre></div>");
+		});
+
+		test("includes snippet when present", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					errors: [createStubTestError({ snippet: "  10 | expect(1 + 1).toBe(3);" })],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain(
+				"<div><pre>Error message</pre><pre>  10 | expect(1 + 1).toBe(3);</pre></div>",
+			);
+		});
+
+		test("omits snippet when not present", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({ errors: [createStubTestError({ snippet: undefined })] }),
+			);
+
+			expect(failureDetails(summary)).toContain("<div><pre>Error message</pre></div>");
+		});
+
+		test("strips ANSI and escapes HTML in message and snippet", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					errors: [
+						createStubTestError({
+							message: "\x1b[31mExpected <div> & more\x1b[0m",
+							snippet: "\x1b[2m> 10 | render(<div />);\x1b[0m",
+						}),
+					],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain(
+				"<pre>Expected &lt;div&gt; &amp; more</pre><pre>&gt; 10 | render(&lt;div /&gt;);</pre>",
+			);
+		});
+
+		test("encodes newlines in message and snippet so each block stays on one Markdown line", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					errors: [
+						createStubTestError({
+							message: "Error: expect(received).toBe(expected)\n\nExpected: 3\nReceived: 2",
+							snippet: "  10 | test(() => {\n> 11 |   expect(1 + 1).toBe(3);",
+						}),
+					],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain(
+				"<pre>Error: expect(received).toBe(expected)&#10;&#10;Expected: 3&#10;Received: 2</pre><pre>  10 | test(() =&gt; {&#10;&gt; 11 |   expect(1 + 1).toBe(3);</pre>",
+			);
+		});
+
+		test("HTML-escapes the title path in the Failures summary", async () => {
+			const { summary } = await runTestCases(createFailingTestCase({}, "renders <dangerous> path"));
+
+			expect(failureDetails(summary)).toContain(
+				"<summary>Tests » example.spec.ts » renders &lt;dangerous&gt; path</summary>",
+			);
+		});
+
+		test("HTML-escapes step title and subtitle in the step chain", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({
+					steps: [
+						createStubTestStep({
+							title: "Add <item> to cart",
+							subtitle: "SKU & price",
+							error: createStubTestError(),
+						}),
+					],
+				}),
+			);
+
+			expect(failureDetails(summary)).toContain("<code>Add &lt;item&gt; to cart (SKU &amp; price)</code>");
+		});
+
+		test("omits step section when no step has error", async () => {
+			const { summary } = await runTestCases(
+				createFailingTestCase({ steps: [createStubTestStep({ title: "Add to cart" })] }),
+			);
+
+			expect(failureDetails(summary)).toContain("<div><pre>Error message</pre></div>");
+			expect(failureDetails(summary)).not.toContain("<strong>Step:</strong>");
+		});
+
+		test("never includes stack in failure details", async () => {
+			const stack = "Error: Error message\n    at /path/to/example.spec.ts:3:7";
+
+			const { summary } = await runTestCases(createFailingTestCase({ errors: [createStubTestError({ stack })] }));
+
+			expect(failureDetails(summary)).toContain("<div><pre>Error message</pre></div>");
+			expect(summary).not.toContain("/path/to/example.spec.ts");
 		});
 	});
 
