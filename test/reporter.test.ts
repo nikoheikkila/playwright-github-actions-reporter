@@ -1,5 +1,10 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { join, relative } from "node:path";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, relative } from "node:path";
+import type { DefaultArtifactClient } from "@actions/artifact";
+import * as coreModule from "@actions/core";
 import type {
 	FullConfig,
 	FullResult,
@@ -9,9 +14,11 @@ import type {
 	TestResult,
 	WorkerInfo,
 } from "@playwright/test/reporter";
+import Reporter, { createUploadArtifactImpl } from "../index.ts";
 import { GitHubReporter, type GitHubReporterOptions } from "../src/reporter.ts";
 import { FakeCore } from "./fakes.ts";
 import {
+	createStubAttachment,
 	createStubConfig,
 	createStubFullResult,
 	createStubProject,
@@ -64,7 +71,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		}
 
 		try {
-			reporter.onEnd(fullResult ?? createStubFullResult());
+			await reporter.onEnd(fullResult ?? createStubFullResult());
 		} finally {
 			await reporter.onExit();
 		}
@@ -1813,5 +1820,743 @@ describe("Playwright GitHub Actions Reporter", () => {
 				expect((error as Error).message).toBe(message);
 			}
 		});
+	});
+	describe("Screenshots", () => {
+		// Real artifact upload is verified only on GitHub Actions; this test uses the FakeCore mock.
+		const envKeys = ["GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_SERVER_URL"] as const;
+		const originalEnv = envKeys.map((key) => process.env[key]);
+
+		afterEach(() => {
+			envKeys.forEach((key, index) => {
+				const value = originalEnv[index];
+				if (value === undefined) {
+					delete process.env[key];
+				} else {
+					process.env[key] = value;
+				}
+			});
+		});
+
+		test("uploads screenshots under unique, file-name-safe names derived from the test", async () => {
+			reporter = new GitHubReporter(core, { screenshots: true });
+			const failing = (id: string, title: string) =>
+				createStubTestCase({
+					id,
+					title,
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment({ name: "screenshot.png", path: `/tmp/${id}/screenshot.png` })],
+						}),
+					],
+				});
+
+			await runTestCases(failing("a1", "logs in / out"), failing("b2", "logs in / out"), failing("c3", "other: test?"));
+
+			const names = core.uploadedArtifacts[0]?.files.map(({ name }) => name) ?? [];
+			expect(names).toHaveLength(3);
+			expect(new Set(names).size).toBe(3);
+			for (const name of names) {
+				expect(name).toMatch(/^[A-Za-z0-9._-]+$/);
+			}
+		});
+
+		test("indexes screenshot names only when a test has several PNG attachments", async () => {
+			reporter = new GitHubReporter(core, { screenshots: true });
+			const failing = (id: string, paths: string[]) =>
+				createStubTestCase({
+					id,
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: paths.map((path) => createStubAttachment({ path })),
+						}),
+					],
+				});
+
+			await runTestCases(failing("a1", ["/tmp/one.png", "/tmp/two.png"]), failing("b2", ["/tmp/solo.png"]));
+
+			expect(core.uploadedArtifacts[0]?.files.map(({ name }) => name)).toStrictEqual([
+				"a1-0.png",
+				"a1-1.png",
+				"b2.png",
+			]);
+		});
+
+		test("links the uploaded screenshot artifact in the Failures section", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					title: "fails with a screenshot",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			const url = "https://github.com/owner/repo/actions/runs/999/artifacts/42";
+			expect(core.uploadedArtifacts.map(({ name }) => name)).toStrictEqual(["playwright-screenshots"]);
+			const link = `<a href="${url}">Screenshots</a>`;
+			const failures = summary.slice(summary.indexOf("<h3>Failures</h3>"));
+			const beforeFirstDetails = failures.slice(0, failures.indexOf("<details>"));
+			expect(beforeFirstDetails).toContain(link);
+			expect(summary.split(link)).toHaveLength(2);
+		});
+		test("emits warning and renders no link when uploadArtifact returns no id", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			core.setUploadArtifactFail();
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					title: "fails with a screenshot",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			expect(summary).not.toContain("Screenshots</a>");
+			expect(summary).toContain("<h3>Failures</h3>");
+			expect(core.warningAnnotations).toHaveLength(1);
+			expect(core.warningAnnotations[0]?.message).toContain("screenshot");
+			expect(core.errors).toStrictEqual(["Error message"]);
+		});
+
+		test.each(["GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"] as const)(
+			"renders no link and warns when %s is missing",
+			async (missing) => {
+				process.env.GITHUB_RUN_ID = "999";
+				process.env.GITHUB_REPOSITORY = "owner/repo";
+				process.env.GITHUB_SERVER_URL = "https://github.com";
+				delete process.env[missing];
+				reporter = new GitHubReporter(core, { screenshots: true });
+
+				const { summary } = await runTestCases(
+					createStubTestCase({
+						title: "fails with a screenshot",
+						results: [
+							createStubTestResult({
+								status: "failed",
+								errors: [createStubTestError()],
+								attachments: [createStubAttachment()],
+							}),
+						],
+					}),
+				);
+
+				expect(summary).not.toContain("Screenshots</a>");
+				expect(summary).not.toContain("undefined");
+				expect(core.warningAnnotations).toHaveLength(1);
+				expect(core.warningAnnotations[0]?.message).toContain("screenshot");
+			},
+		);
+
+		test("continues rendering failures when uploadArtifact throws", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			core.setUploadArtifactThrow(new Error("Upload failed: network error"));
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			const run = runTestCases(
+				createStubTestCase({
+					title: "fails with a screenshot",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			await expect(run).resolves.toBeDefined();
+			const { summary } = await run;
+
+			expect(summary).toContain("<h3>Failures</h3>");
+			expect(summary).toContain("Error message");
+			expect(summary).not.toContain("Screenshots</a>");
+			expect(core.warningAnnotations).toHaveLength(1);
+			expect(core.warningAnnotations[0]?.message).toContain("Upload failed: network error");
+		});
+
+		test.each([
+			["unset", undefined],
+			["false", { screenshots: false }],
+		])("uploads nothing, links nothing and warns about nothing when screenshots is %s", async (_label, options) => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, options);
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					title: "fails with a screenshot",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			expect(core.uploadedArtifacts).toStrictEqual([]);
+			expect(summary).not.toContain("Screenshots");
+			expect(core.warningAnnotations).toStrictEqual([]);
+		});
+
+		test("excludes flaky, skipped, passed, earlier retries, non-PNG, and missing-path attachments", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { screenshots: true });
+			const png = (path: string) => createStubAttachment({ path });
+			const failed = (path?: string, contentType = "image/png") =>
+				createStubTestResult({
+					status: "failed",
+					errors: [createStubTestError()],
+					attachments: [
+						path === undefined
+							? createStubAttachment({ path: undefined, contentType })
+							: createStubAttachment({ path, contentType }),
+					],
+				});
+
+			const unexpected = createStubTestCase({ id: "unexpected", results: [failed("/tmp/unexpected.png")] });
+			const flaky = createStubTestCase({
+				id: "flaky",
+				results: [failed("/tmp/flaky-1.png"), createStubTestResult({ attachments: [png("/tmp/flaky-2.png")] })],
+			});
+			const skipped = createStubTestCase({
+				id: "skipped",
+				results: [createStubTestResult({ status: "skipped", attachments: [png("/tmp/skipped.png")] })],
+			});
+			const passed = createStubTestCase({
+				id: "passed",
+				results: [createStubTestResult({ attachments: [png("/tmp/passed.png")] })],
+			});
+			const retried = createStubTestCase({
+				id: "retried",
+				results: [failed("/tmp/retried-1.png"), failed("/tmp/retried-2.png")],
+			});
+			const nonPng = createStubTestCase({ id: "non-png", results: [failed("/tmp/trace.zip", "application/zip")] });
+			const noPath = createStubTestCase({ id: "no-path", results: [failed(undefined)] });
+
+			const { summary } = await runTestCases(unexpected, flaky, skipped, passed, retried, nonPng, noPath);
+
+			expect(core.uploadedArtifacts).toHaveLength(1);
+			expect(core.uploadedArtifacts[0]?.files.map(({ path }) => path).sort()).toStrictEqual([
+				"/tmp/retried-2.png",
+				"/tmp/unexpected.png",
+			]);
+			expect(summary).toContain(
+				'<a href="https://github.com/owner/repo/actions/runs/999/artifacts/42">Screenshots</a>',
+			);
+		});
+
+		test("escapes special characters in GITHUB_REPOSITORY in the screenshot link href", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo<script>";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					title: "fails with a screenshot",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			expect(summary).toContain(
+				'<a href="https://github.com/owner/repo&lt;script&gt;/actions/runs/999/artifacts/42">Screenshots</a>',
+			);
+			expect(summary).not.toContain("<script>");
+		});
+
+		test("appears exactly once in Failures section across multiple failing tests", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { screenshots: true });
+			const failing = (id: string) =>
+				createStubTestCase({
+					id,
+					title: `fails ${id}`,
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment({ path: `/tmp/${id}.png` })],
+						}),
+					],
+				});
+
+			const { summary } = await runTestCases(failing("a1"), failing("b2"), failing("c3"));
+
+			const link = '<a href="https://github.com/owner/repo/actions/runs/999/artifacts/42">Screenshots</a>';
+			const failuresIndex = summary.indexOf("<h3>Failures</h3>");
+			expect(summary.split(link)).toHaveLength(2);
+			expect(summary.indexOf(link)).toBeGreaterThan(failuresIndex);
+			expect(summary.slice(0, failuresIndex)).not.toContain(link);
+		});
+
+		test("escapes quotes in GITHUB_REPOSITORY in the screenshot link href", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = 'owner/repo"';
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					title: "fails with a screenshot",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			expect(summary).toContain(
+				'<a href="https://github.com/owner/repo&quot;/actions/runs/999/artifacts/42">Screenshots</a>',
+			);
+			expect(summary).not.toContain('repo"/actions');
+		});
+
+		test("treats empty GITHUB_SERVER_URL like missing and renders no link", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "";
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					title: "fails with a screenshot",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			expect(summary).not.toContain("Screenshots</a>");
+			expect(summary).not.toContain('href="/owner/repo');
+			expect(core.warningAnnotations).toHaveLength(1);
+			expect(core.warningAnnotations[0]?.message).toContain("screenshot");
+		});
+
+		test("has the screenshot link in the Failures section after onEnd, before onExit", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { screenshots: true });
+			const testCase = createStubTestCase({
+				title: "fails with a screenshot",
+				results: [
+					createStubTestResult({
+						status: "failed",
+						errors: [createStubTestError()],
+						attachments: [createStubAttachment()],
+					}),
+				],
+			});
+			const suite = createStubSuite({
+				allTests(): TestCase[] {
+					return [testCase];
+				},
+			});
+
+			reporter.onBegin(createStubConfig(), suite);
+			for (const result of testCase.results) {
+				reporter.onTestEnd(testCase, result);
+			}
+			await reporter.onEnd(createStubFullResult());
+
+			const summary = core.summary.stringify();
+			expect(summary).toContain("<h3>Failures</h3>");
+			expect(summary).toContain(
+				'<a href="https://github.com/owner/repo/actions/runs/999/artifacts/42">Screenshots</a>',
+			);
+		});
+
+		test("uploads nothing with zero unexpected tests when screenshots is true", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					title: "passes without screenshot",
+					results: [createStubTestResult({ status: "passed" })],
+				}),
+			);
+
+			expect(core.uploadedArtifacts).toStrictEqual([]);
+			expect(summary).not.toContain("Screenshots");
+			expect(core.warningAnnotations).toStrictEqual([]);
+		});
+
+		test("uploads nothing for unexpected tests with no PNG attachments", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					title: "fails without attachments",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [],
+						}),
+					],
+				}),
+			);
+
+			expect(core.uploadedArtifacts).toStrictEqual([]);
+			expect(summary).not.toContain("Screenshots");
+			expect(core.warningAnnotations).toStrictEqual([]);
+		});
+	});
+});
+
+describe("Artifact upload outside GitHub Actions", () => {
+	const saved = { token: process.env.ACTIONS_RUNTIME_TOKEN, url: process.env.ACTIONS_RESULTS_URL };
+	const originalWrite = process.stdout.write;
+	let output: string;
+
+	beforeEach(() => {
+		output = "";
+		process.stdout.write = ((chunk: string | Uint8Array) => {
+			output += String(chunk);
+			return true;
+		}) as typeof process.stdout.write;
+	});
+
+	afterEach(() => {
+		process.stdout.write = originalWrite;
+		for (const [key, value] of [
+			["ACTIONS_RUNTIME_TOKEN", saved.token],
+			["ACTIONS_RESULTS_URL", saved.url],
+		] as const) {
+			if (value === undefined) {
+				delete process.env[key];
+			} else {
+				process.env[key] = value;
+			}
+		}
+	});
+
+	test("emits a warning when ACTIONS_RUNTIME_TOKEN is missing", async () => {
+		delete process.env.ACTIONS_RUNTIME_TOKEN;
+		delete process.env.ACTIONS_RESULTS_URL;
+		const reporter = new Reporter({ screenshots: true });
+		const testCase = createStubTestCase({
+			results: [
+				createStubTestResult({
+					status: "failed",
+					errors: [createStubTestError()],
+					attachments: [createStubAttachment()],
+				}),
+			],
+		});
+
+		reporter.onBegin(createStubConfig(), createStubSuite({ allTests: () => [testCase] }));
+		reporter.onTestEnd(testCase, testCase.results[0] as TestResult);
+		await reporter.onEnd(createStubFullResult());
+
+		expect(output).not.toContain("Skipping artifact upload");
+		expect(output.split("::warning::").length - 1).toBe(1);
+		expect(output).toContain("Actions runtime variables");
+	});
+});
+
+describe("createUploadArtifactImpl coverage", () => {
+	const originalToken = process.env.ACTIONS_RUNTIME_TOKEN;
+	const originalUrl = process.env.ACTIONS_RESULTS_URL;
+
+	const restore = (key: string, value: string | undefined) => {
+		if (value === undefined) {
+			delete process.env[key];
+		} else {
+			process.env[key] = value;
+		}
+	};
+
+	afterEach(() => {
+		restore("ACTIONS_RUNTIME_TOKEN", originalToken);
+		restore("ACTIONS_RESULTS_URL", originalUrl);
+	});
+
+	const createClient = (behaviour: () => Promise<{ id?: number }>) => {
+		const calls: Array<{ name: string; files: string[]; root: string }> = [];
+		const client = {
+			uploadArtifact: async (name: string, files: string[], root: string) => {
+				calls.push({ name, files, root });
+				return behaviour();
+			},
+		} as unknown as DefaultArtifactClient;
+		return { client, calls };
+	};
+
+	test("throws instead of warning when the client throws", async () => {
+		process.env.ACTIONS_RUNTIME_TOKEN = "token";
+		process.env.ACTIONS_RESULTS_URL = "https://results.example";
+		const warning = spyOn(coreModule, "warning").mockImplementation(() => {
+			// spy only, no implementation needed
+		});
+		const { client } = createClient(async () => {
+			throw new Error("boom");
+		});
+
+		const upload = createUploadArtifactImpl(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
+
+		await expect(upload).rejects.toThrow("boom");
+		expect(warning).not.toHaveBeenCalled();
+		warning.mockRestore();
+	});
+
+	test.each([
+		["ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL"],
+		["ACTIONS_RESULTS_URL", "ACTIONS_RUNTIME_TOKEN"],
+	])("throws and skips the client when %s is missing", async (missing, present) => {
+		process.env[present] = "value";
+		delete process.env[missing];
+		const warning = spyOn(coreModule, "warning").mockImplementation(() => {
+			// spy only, no implementation needed
+		});
+		const { client, calls } = createClient(async () => ({ id: 1 }));
+
+		const upload = createUploadArtifactImpl(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
+
+		await expect(upload).rejects.toThrow(Error);
+		expect(calls).toHaveLength(0);
+		expect(warning).not.toHaveBeenCalled();
+		warning.mockRestore();
+	});
+
+	test("uploads with the common ancestor of all file paths as root directory", async () => {
+		process.env.ACTIONS_RUNTIME_TOKEN = "token";
+		process.env.ACTIONS_RESULTS_URL = "https://results.example";
+		const { client, calls } = createClient(async () => ({ id: 42 }));
+		const files = [
+			{ name: "one", path: "/tmp/run/x/1.png" },
+			{ name: "two", path: "/tmp/run/y/z/2.png" },
+		];
+
+		const result = await createUploadArtifactImpl(client)("shots", files);
+
+		expect(result).toStrictEqual({ id: 42 });
+		expect(calls[0]?.root).toBe("/tmp/run");
+	});
+
+	test.each([
+		["empty", ""],
+		["absolute posix", "/etc/evil.png"],
+		["absolute windows", "C:\\evil.png"],
+		["forward slash separator", "nested/evil.png"],
+		["backslash separator", "nested\\evil.png"],
+		["directory traversal", ".."],
+	])("rejects %s file name before staging or uploading anything", async (_case, name) => {
+		process.env.ACTIONS_RUNTIME_TOKEN = "token";
+		process.env.ACTIONS_RESULTS_URL = "https://results.example";
+		const source = await mkdtemp(join(tmpdir(), "reporter-source-"));
+		const sourcePath = join(source, "1.png");
+		await writeFile(sourcePath, "image-bytes");
+		const { client, calls } = createClient(async () => ({ id: 1 }));
+
+		const upload = createUploadArtifactImpl(client)("shots", [{ name, path: sourcePath }]);
+
+		await expect(upload).rejects.toThrow(/invalid artifact file name/i);
+		expect(calls).toHaveLength(0);
+		await rm(source, { recursive: true, force: true });
+	});
+
+	test("stages renamed files in a unique private mkdtemp directory under os.tmpdir and removes it afterwards", async () => {
+		process.env.ACTIONS_RUNTIME_TOKEN = "token";
+		process.env.ACTIONS_RESULTS_URL = "https://results.example";
+		const originalTmpdir = process.env.TMPDIR;
+		delete process.env.TMPDIR;
+		const uploadTmpdir = tmpdir();
+		const source = await mkdtemp(join(uploadTmpdir, "reporter-source-"));
+		const sourcePath = join(source, "1.png");
+		await writeFile(sourcePath, "image-bytes");
+		const seen: Array<{ root: string; staged: string; mode: number }> = [];
+		const client = {
+			uploadArtifact: async (_name: string, files: string[], root: string) => {
+				const staged = await readFile(join(root, "renamed.png"), "utf8");
+				seen.push({ root, staged, mode: (await stat(root)).mode & 0o777 });
+				expect(files).toStrictEqual([join(root, "renamed.png")]);
+				throw new Error("upload failed");
+			},
+		} as unknown as DefaultArtifactClient;
+		const warning = spyOn(coreModule, "warning").mockImplementation(() => {
+			// spy only, no implementation needed
+		});
+		const upload = createUploadArtifactImpl(client);
+		const files = [{ name: "renamed.png", path: sourcePath }];
+
+		await expect(upload("shots", files)).rejects.toThrow("upload failed");
+		await expect(upload("shots", files)).rejects.toThrow("upload failed");
+
+		warning.mockRestore();
+		restore("TMPDIR", originalTmpdir);
+		await rm(source, { recursive: true, force: true });
+		const [first, second] = seen;
+		expect(seen).toHaveLength(2);
+		expect(first?.staged).toBe("image-bytes");
+		expect(dirname(first?.root ?? "")).toBe(uploadTmpdir);
+		expect(basename(first?.root ?? "").startsWith("playwright-screenshots-")).toBe(true);
+		expect(first?.root).not.toBe(second?.root);
+		expect(first?.mode).toBe(0o700);
+		expect(existsSync(first?.root ?? "")).toBe(false);
+	});
+
+	test.each([
+		["a symlink to another file", "symlink"],
+		["a directory", "directory"],
+	])("rejects %s as a non-regular attachment before uploading anything", async (_case, kind) => {
+		process.env.ACTIONS_RUNTIME_TOKEN = "token";
+		process.env.ACTIONS_RESULTS_URL = "https://results.example";
+		const source = await mkdtemp(join(tmpdir(), "reporter-source-"));
+		const target = join(source, "secret.txt");
+		await writeFile(target, "secret-contents");
+		const path = join(source, "1.png");
+		if (kind === "symlink") {
+			await symlink(target, path);
+		} else {
+			await mkdir(path);
+		}
+		const { client, calls } = createClient(async () => ({ id: 1 }));
+
+		const error = await createUploadArtifactImpl(client)("shots", [{ name: "1.png", path }]).catch((e: Error) => e);
+		await rm(source, { recursive: true, force: true });
+
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).not.toContain("secret-contents");
+		expect((error as Error).message).not.toContain(source);
+		expect(calls).toHaveLength(0);
+	});
+
+	test("throws 'Artifact upload returned no ID' when client returns undefined id, and cleans up staging directory", async () => {
+		process.env.ACTIONS_RUNTIME_TOKEN = "token";
+		process.env.ACTIONS_RESULTS_URL = "https://results.example";
+		const source = await mkdtemp(join(tmpdir(), "reporter-source-"));
+		const sourcePath = join(source, "1.png");
+		await writeFile(sourcePath, "image-bytes");
+		const { client, calls } = createClient(async () => ({ id: undefined }));
+
+		const upload = createUploadArtifactImpl(client)("shots", [{ name: "renamed.png", path: sourcePath }]);
+
+		await expect(upload).rejects.toThrow("Artifact upload returned no ID");
+		const root = calls[0]?.root ?? "";
+		await rm(source, { recursive: true, force: true });
+		expect(calls).toHaveLength(1);
+		expect(root).not.toBe("");
+		expect(existsSync(root)).toBe(false);
+	});
+
+	test("succeeds with real files, uses unique staged names, and cleans up staging directory", async () => {
+		process.env.ACTIONS_RUNTIME_TOKEN = "token";
+		process.env.ACTIONS_RESULTS_URL = "https://results.example";
+		const source = await mkdtemp(join(tmpdir(), "reporter-source-"));
+		const firstPath = join(source, "a.png");
+		const secondPath = join(source, "b.png");
+		await writeFile(firstPath, "first-bytes");
+		await writeFile(secondPath, "second-bytes");
+		const { client, calls } = createClient(async () => ({ id: 123 }));
+
+		const result = await createUploadArtifactImpl(client)("shots", [
+			{ name: "first-renamed.png", path: firstPath },
+			{ name: "second-renamed.png", path: secondPath },
+		]);
+
+		await rm(source, { recursive: true, force: true });
+		const root = calls[0]?.root ?? "";
+		expect(result).toStrictEqual({ id: 123 });
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.files).toStrictEqual([join(root, "first-renamed.png"), join(root, "second-renamed.png")]);
+		expect(basename(root).startsWith("playwright-screenshots-")).toBe(true);
+		expect(existsSync(root)).toBe(false);
+	});
+});
+
+describe("artifact upload failure diagnostics", () => {
+	const saved = { token: process.env.ACTIONS_RUNTIME_TOKEN, url: process.env.ACTIONS_RESULTS_URL };
+
+	afterEach(() => {
+		for (const [key, value] of [
+			["ACTIONS_RUNTIME_TOKEN", saved.token],
+			["ACTIONS_RESULTS_URL", saved.url],
+		] as const) {
+			if (value === undefined) {
+				delete process.env[key];
+			} else {
+				process.env[key] = value;
+			}
+		}
+	});
+
+	test("warns exactly once from the reporter when not running in a GitHub Actions environment", async () => {
+		delete process.env.ACTIONS_RUNTIME_TOKEN;
+		delete process.env.ACTIONS_RESULTS_URL;
+		const core = new FakeCore();
+		const upload = createUploadArtifactImpl();
+		core.uploadArtifact = (name, files) => upload(name, files);
+		const reporter = new GitHubReporter(core, { screenshots: true });
+		const testCase = createStubTestCase({
+			results: [
+				createStubTestResult({
+					status: "failed",
+					errors: [createStubTestError()],
+					attachments: [createStubAttachment()],
+				}),
+			],
+		});
+
+		reporter.onBegin(createStubConfig(), createStubSuite({ allTests: () => [testCase] }));
+		reporter.onTestEnd(testCase, testCase.results[0] as TestResult);
+		await reporter.onEnd(createStubFullResult());
+		const summary = core.summary.stringify();
+
+		expect(core.warningAnnotations).toHaveLength(1);
+		expect(core.warningAnnotations[0]?.message).toContain("Actions runtime variables");
+		expect(core.isFailed).toBe(false);
+		expect(summary).not.toContain("Screenshots</a>");
+		expect(summary).not.toContain("undefined");
 	});
 });

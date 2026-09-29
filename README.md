@@ -64,6 +64,7 @@ Errors raised outside any test, such as a failing worker fixture teardown, get t
 - Labels sharded runs with `(shard x/y)` so matrix jobs can be told apart
 - Marks the workflow step as failed when the run fails, so a broken build never passes silently
 - Escapes all test-controlled text, so titles or messages containing HTML can't break the summary layout
+- Uploads failed test screenshots as an artifact when enabled (requires GitHub Actions runtime)
 - Zero configuration: works out of the box on any GitHub Actions runner, with [options](#reporter-options) when you need them
 
 ## Requirements
@@ -145,12 +146,59 @@ export default defineConfig({
 });
 ```
 
-| Option     | Type      | Description                                                                                                                                  |
-|------------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| `omitTags` | `boolean` | When `true`, hides the Tags column from the results table. Defaults to `false`. Matches Playwright's built-in `omitTags` option in 1.63+. |
-| `title`    | `string`  | Custom heading for the report, replacing "🎭 Playwright Test Report". Defaults to the standard heading.                                      |
+| Option       | Type      | Description                                                                                                                                  |
+|--------------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `omitTags`   | `boolean` | When `true`, hides the Tags column from the results table. Defaults to `false`. Matches Playwright's built-in `omitTags` option in 1.63+. |
+| `title`      | `string`  | Custom heading for the report, replacing "🎭 Playwright Test Report". Defaults to the standard heading.                                      |
+| `screenshots` | `boolean` | When `true`, uploads the screenshots of failed tests as a GitHub Actions artifact and links to it in the report. The upload needs the Actions runtime variables `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_RESULTS_URL`. GitHub exposes these only to actions (`uses:` steps), not to `run:` steps, so you have to pass them to the Playwright step yourself. See [Setting up screenshot uploads](#setting-up-screenshot-uploads). If they're missing, the reporter skips the upload and logs a warning. Defaults to `false`. |
 
 When running sharded tests (configured with `shard` in `playwright.config.ts`), the report automatically appends " (shard x/y)" to the heading, so parallel jobs can be distinguished in the summary.
+
+### Setting up screenshot uploads
+
+The `screenshots` option uploads artifacts through the GitHub Actions artifact service. That service authenticates with two runtime variables, `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_RESULTS_URL`. GitHub sets them only for actions (steps with `uses:`). Steps with `run:`, such as `npx playwright test`, don't get them, so the upload is skipped.
+
+To fix this, add an [`actions/github-script`](https://github.com/actions/github-script) step before your tests. It reads the variables, masks the token, and exposes both as step outputs. Then map those outputs into the environment of the Playwright step:
+
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Expose Actions runtime variables
+        id: runtime
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // GitHub exposes these only to actions, not to run: steps.
+            // The artifact upload needs both of them.
+            core.setSecret(process.env.ACTIONS_RUNTIME_TOKEN ?? "");
+            core.setOutput("token", process.env.ACTIONS_RUNTIME_TOKEN ?? "");
+            core.setOutput("results-url", process.env.ACTIONS_RESULTS_URL ?? "");
+
+      - name: Run tests
+        run: npx playwright test
+        env:
+          ACTIONS_RUNTIME_TOKEN: ${{ steps.runtime.outputs.token }}
+          ACTIONS_RESULTS_URL: ${{ steps.runtime.outputs.results-url }}
+```
+
+Then turn the option on in `playwright.config.ts`:
+
+```typescript
+reporter: [["@nikoheikkila/playwright-github-actions-reporter", { screenshots: true }]],
+```
+
+Playwright captures screenshots only when you enable them, for example with `use: { screenshot: "only-on-failure" }`.
 
 ## Development
 

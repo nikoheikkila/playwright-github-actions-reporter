@@ -39,6 +39,7 @@
 		"@playwright/test": "^1.63.0"
 	},
 	"dependencies": {
+		"@actions/artifact": "^6.2.1",
 		"@actions/core": "^3.0.1"
 	},
 	"scripts": {

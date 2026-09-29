@@ -7,5 +7,8 @@ export default defineConfig({
 	testDir: "./e2e",
 	globalSetup: isPipeline ? undefined : "./e2e/createStepSummary.ts",
 	retries: 1,
-	reporter: [["./index.ts"]],
+	use: {
+		screenshot: "only-on-failure",
+	},
+	reporter: [["./index.ts", { screenshots: isPipeline }]],
 });

@@ -7,6 +7,13 @@ export interface Core {
 	warning(message: string, properties?: AnnotationProperties): void;
 	error(message: string, properties?: AnnotationProperties): void;
 	setFailed(message: string): void;
+	/** Rejects instead of warning on any failure, so the reporter is the single place that warns about it. */
+	uploadArtifact(name: string, files: ArtifactFile[]): Promise<{ id?: number }>;
+}
+
+export interface ArtifactFile {
+	name: string;
+	path: string;
 }
 
 export interface AnnotationProperties {
