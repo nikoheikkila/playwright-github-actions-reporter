@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/nikoheikkila/playwright-github-actions-reporter/compare/v2.0.0...v2.1.0) (2026-09-30)
+
+
+### Features
+
+* link failure screenshots from the step summary ([#4](https://github.com/nikoheikkila/playwright-github-actions-reporter/issues/4)) ([9c895bd](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/9c895bd650f48217d6c40de042c3aed3e8a1169d))
+
 ## [2.0.0](https://github.com/nikoheikkila/playwright-github-actions-reporter/compare/v1.0.0...v2.0.0) (2026-09-23)
 
 
