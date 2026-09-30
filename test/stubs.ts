@@ -160,6 +160,17 @@ export function createStubTestResult(overrides: Partial<TestResult> = {}): TestR
 	};
 }
 
+type TestAttachment = TestResult["attachments"][number];
+
+export function createStubAttachment(overrides: Partial<TestAttachment> = {}): TestAttachment {
+	return {
+		name: "screenshot.png",
+		path: "/tmp/screenshot.png",
+		contentType: "image/png",
+		...overrides,
+	};
+}
+
 export function createStubTestStep(overrides: Partial<TestStep> = {}): TestStep {
 	return {
 		annotations: [],

@@ -7,6 +7,13 @@ export interface Core {
 	warning(message: string, properties?: AnnotationProperties): void;
 	error(message: string, properties?: AnnotationProperties): void;
 	setFailed(message: string): void;
+	/** Rejects instead of warning on any failure, so the reporter is the single place that warns about it. */
+	uploadArtifact(name: string, files: ArtifactFile[]): Promise<{ id?: number }>;
+}
+
+export interface ArtifactFile {
+	name: string;
+	path: string;
 }
 
 export interface AnnotationProperties {
@@ -22,6 +29,7 @@ export interface Summary {
 	addList(items: string[]): Summary;
 	addTable(rows: SummaryTableRow[]): Summary;
 	addDetails(label: string, html: string): Summary;
+	addLink(text: string, href: string): Summary;
 	write(): Promise<Summary>;
 	stringify(): string;
 }

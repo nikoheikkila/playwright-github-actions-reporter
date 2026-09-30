@@ -43,11 +43,24 @@ tasks:
     cmds:
       - cmd: GITHUB_STEP_SUMMARY={{ .summary }} bunx playwright test
         ignore_error: true
-      - diff -u e2e/snapshots/summary.md {{ .summary }}
+      - cmd: |
+          # The screenshots link only exists on a real Actions run (it holds run and artifact ids), so drop its line
+          # from a copy before diffing. The CI workflow checks separately that the artifact was uploaded.
+          # Durations of tests that launch a browser vary with a cold runner, so compare them as a placeholder.
+          link='<a href="[^"]*/actions/runs/[0-9]*/artifacts/[0-9]*">Screenshots</a>'
+          duration='<td>[0-9][0-9]*\.[0-9]s</td>'
+          expected=$(mktemp)
+          actual=$(mktemp)
+          sed -e "s|$duration|<td>DURATION</td>|g" e2e/snapshots/summary.md > "$expected"
+          sed -e "\\|^$link$|d" -e "s|$duration|<td>DURATION</td>|g" "{{ .summary }}" > "$actual"
+          diff -u "$expected" "$actual"
+          status=$?
+          rm "$expected" "$actual"
+          exit $status
 
   build:
     cmds:
-      - bun build index.ts --outdir dist --target node --external '@actions/core' --external '@playwright/test'
+      - bun build index.ts --outdir dist --target node --external '@actions/core' --external '@actions/artifact' --external '@playwright/test'
       - bunx tsc --project tsconfig.build.json
 
   playwright:diff:

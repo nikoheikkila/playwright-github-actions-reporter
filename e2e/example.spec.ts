@@ -31,6 +31,12 @@ test("failing step test", tag("step"), async () => {
 	);
 });
 
+test("failing page test", tag("screenshot"), async ({ page }) => {
+	await page.setContent("<h1>Checkout</h1>");
+
+	expect(await page.locator("h1").textContent()).toBe("Cart");
+});
+
 test.skip("skipped test", tag("skip"), () => {
 	expect(1 + 1).toBe(2);
 });

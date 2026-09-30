@@ -68,6 +68,10 @@ export class FakeSummary implements Summary {
 		return this;
 	}
 
+	public addLink(text: string, href: string): Summary {
+		return this.addRaw(`<a href="${href}">${text}</a>`, true);
+	}
+
 	public async write(): Promise<Summary> {
 		this.storedSummary = this.summaryBuffer;
 
@@ -75,7 +79,7 @@ export class FakeSummary implements Summary {
 	}
 
 	public stringify(): string {
-		return this.storedSummary;
+		return this.storedSummary || this.summaryBuffer;
 	}
 }
 
@@ -88,9 +92,12 @@ export class FakeCore implements Core {
 	public readonly errorAnnotations: Annotation[] = [];
 	public readonly warningAnnotations: Annotation[] = [];
 	public readonly noticeAnnotations: Annotation[] = [];
+	public readonly uploadedArtifacts: Array<{ name: string; files: Array<{ name: string; path: string }> }> = [];
 	public isFailed = false;
 
 	private debugEnabled = false;
+	private uploadFails = false;
+	private uploadError: Error | undefined;
 
 	constructor() {
 		this.summary = new FakeSummary();
@@ -124,6 +131,24 @@ export class FakeCore implements Core {
 	public error(message: string, properties?: AnnotationProperties): void {
 		this.errors.push(message);
 		this.errorAnnotations.push({ message, properties });
+	}
+
+	public setUploadArtifactFail(): void {
+		this.uploadFails = true;
+	}
+
+	public setUploadArtifactThrow(error: Error): void {
+		this.uploadError = error;
+	}
+
+	public async uploadArtifact(name: string, files: Array<{ name: string; path: string }>): Promise<{ id?: number }> {
+		this.uploadedArtifacts.push({ name, files });
+
+		if (this.uploadError !== undefined) {
+			throw this.uploadError;
+		}
+
+		return this.uploadFails ? { id: undefined } : { id: 42 };
 	}
 
 	public setFailed(message: string): never {

@@ -12,7 +12,7 @@ import type {
 	TestStep,
 	WorkerInfo,
 } from "@playwright/test/reporter";
-import type { AnnotationProperties, Core, Summary } from "./interface.ts";
+import type { AnnotationProperties, ArtifactFile, Core, Summary } from "./interface.ts";
 
 type Status = TestResult["status"];
 type Outcome = ReturnType<TestCase["outcome"]>;
@@ -60,9 +60,20 @@ const preformattedHtml = ({ message, snippet }: ErrorMessage): string =>
 		.map((text) => `<pre>${escapeHtml(text).replaceAll(lineBreaks, "&#10;")}</pre>`)
 		.join("");
 
+const attributeEscape = (text: string): string => inlineHtml(text).replaceAll('"', "&quot;");
+
+const artifactUrl = (id: number): string | undefined => {
+	const { GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID } = process.env;
+	if (!(GITHUB_SERVER_URL && GITHUB_REPOSITORY && GITHUB_RUN_ID)) {
+		return undefined;
+	}
+	return `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${id}`;
+};
+
 export interface GitHubReporterOptions {
 	omitTags?: boolean;
 	title?: string;
+	screenshots?: boolean;
 }
 
 export class GitHubReporter implements Reporter {
@@ -76,6 +87,7 @@ export class GitHubReporter implements Reporter {
 	private tests: TestCase[] = [];
 	private failOnFlakyTests = false;
 	private workspace = "";
+	private screenshotsUrl: string | undefined;
 
 	constructor(core: Core, options: GitHubReporterOptions = {}) {
 		this.core = core;
@@ -128,7 +140,7 @@ export class GitHubReporter implements Reporter {
 		this.recordedErrors.push({ title: this.errorTitle(workerInfo), ...this.errorMessage(error, "Unknown error") });
 	}
 
-	public onEnd(result: FullResult): void {
+	public async onEnd(result: FullResult): Promise<void> {
 		const counts = this.counts();
 		this.core.notice(`🎭  ${counts.passed} out of ${this.tests.length} test(s) passed (${this.duration(result)})`);
 
@@ -136,15 +148,24 @@ export class GitHubReporter implements Reporter {
 		this.collectSummaryResults(counts);
 		this.collectDetailedResults();
 
-		const unexpectedTests = this.tests.filter((test) => this.outcome(test) === "unexpected");
-		if (unexpectedTests.length > 0) {
-			this.collectFailureDetails(unexpectedTests);
+		if (counts.failed > 0) {
+			// The upload is awaited before the Failures section so the single artifact link can be rendered under the heading.
+			await this.uploadScreenshots();
+			this.collectFailureDetails();
 		}
 
 		if (this.recordedErrors.length > 0) {
 			this.collectErrorDetails();
 		}
 
+		this.reportFailure(result);
+	}
+
+	public async onExit(): Promise<void> {
+		await this.summary.write();
+	}
+
+	private reportFailure(result: FullResult) {
 		if (result.status !== "passed") {
 			this.core.setFailed("Test run failed. See the job summary for detailed information.");
 		} else if (this.recordedErrors.length > 0) {
@@ -152,8 +173,52 @@ export class GitHubReporter implements Reporter {
 		}
 	}
 
-	public async onExit(): Promise<void> {
-		await this.summary.write();
+	private async uploadScreenshots(): Promise<void> {
+		const files = this.options.screenshots ? this.screenshotFiles(this.unexpectedTests()) : [];
+		if (files.length === 0) {
+			return;
+		}
+		const id = await this.uploadedArtifactId(files);
+		if (id === undefined) {
+			return;
+		}
+		this.screenshotsUrl = artifactUrl(id);
+		if (this.screenshotsUrl === undefined) {
+			this.core.warning("GitHub run environment is missing, so the summary does not link to screenshots.");
+		}
+	}
+
+	private async uploadedArtifactId(files: ArtifactFile[]): Promise<number | undefined> {
+		try {
+			const { id } = await this.core.uploadArtifact("playwright-screenshots", files);
+			if (id === undefined) {
+				this.core.warning("Screenshot artifact upload returned no ID, so the summary does not link to screenshots.");
+			}
+			return id;
+		} catch (error) {
+			this.core.warning(error instanceof Error ? error.message : String(error));
+			return undefined;
+		}
+	}
+
+	private screenshotFiles(tests: TestCase[]): ArtifactFile[] {
+		// Titles can repeat and contain path separators, so the opaque, unique test id names the file instead.
+		return tests.flatMap((test) => {
+			const paths = this.screenshotPaths(test);
+			// A lone screenshot keeps the plain name; only several need an index to stay unique.
+			const suffix = (index: number) => (paths.length === 1 ? "" : `-${index}`);
+			return paths.map((path, index) => ({ name: `${test.id}${suffix(index)}.png`, path }));
+		});
+	}
+
+	private screenshotPaths(test: TestCase): string[] {
+		return (test.results.at(-1)?.attachments ?? []).flatMap(({ contentType, path }) =>
+			contentType === "image/png" && path !== undefined ? [path] : [],
+		);
+	}
+
+	private unexpectedTests(): TestCase[] {
+		return this.tests.filter((test) => this.outcome(test) === "unexpected");
 	}
 
 	private heading(shard: FullConfig["shard"]): string {
@@ -279,15 +344,23 @@ export class GitHubReporter implements Reporter {
 			.addRaw("</details>");
 	}
 
-	private collectFailureDetails(tests: TestCase[]) {
+	private collectFailureDetails() {
 		this.summary.addHeading("Failures", 3);
 
-		for (const test of tests) {
+		this.addScreenshotsLink();
+
+		for (const test of this.unexpectedTests()) {
 			const result = test.results.at(-1);
 
 			if (result !== undefined) {
 				this.summary.addDetails(`❌ ${inlineHtml(this.titlePath(test))}`, this.failureDetails(test, result));
 			}
+		}
+	}
+
+	private addScreenshotsLink() {
+		if (this.screenshotsUrl !== undefined) {
+			this.summary.addLink("Screenshots", attributeEscape(this.screenshotsUrl));
 		}
 	}
 
