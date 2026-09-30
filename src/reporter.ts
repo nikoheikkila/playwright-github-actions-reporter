@@ -148,11 +148,10 @@ export class GitHubReporter implements Reporter {
 		this.collectSummaryResults(counts);
 		this.collectDetailedResults();
 
-		const unexpectedTests = this.unexpectedTests();
-		if (unexpectedTests.length > 0) {
+		if (counts.failed > 0) {
 			// The upload is awaited before the Failures section so the single artifact link can be rendered under the heading.
-			await this.uploadScreenshots(unexpectedTests);
-			this.collectFailureDetails(unexpectedTests);
+			await this.uploadScreenshots();
+			this.collectFailureDetails();
 		}
 
 		if (this.recordedErrors.length > 0) {
@@ -174,8 +173,8 @@ export class GitHubReporter implements Reporter {
 		}
 	}
 
-	private async uploadScreenshots(tests: TestCase[]): Promise<void> {
-		const files = this.options.screenshots === true ? this.screenshotFiles(tests) : [];
+	private async uploadScreenshots(): Promise<void> {
+		const files = this.options.screenshots ? this.screenshotFiles(this.unexpectedTests()) : [];
 		if (files.length === 0) {
 			return;
 		}
@@ -345,12 +344,12 @@ export class GitHubReporter implements Reporter {
 			.addRaw("</details>");
 	}
 
-	private collectFailureDetails(tests: TestCase[]) {
+	private collectFailureDetails() {
 		this.summary.addHeading("Failures", 3);
 
 		this.addScreenshotsLink();
 
-		for (const test of tests) {
+		for (const test of this.unexpectedTests()) {
 			const result = test.results.at(-1);
 
 			if (result !== undefined) {
@@ -361,7 +360,7 @@ export class GitHubReporter implements Reporter {
 
 	private addScreenshotsLink() {
 		if (this.screenshotsUrl !== undefined) {
-			this.summary.addRaw(`<p><a href="${attributeEscape(this.screenshotsUrl)}">Screenshots</a></p>`);
+			this.summary.addLink("Screenshots", attributeEscape(this.screenshotsUrl));
 		}
 	}
 

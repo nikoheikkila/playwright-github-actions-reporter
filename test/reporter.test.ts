@@ -14,7 +14,8 @@ import type {
 	TestResult,
 	WorkerInfo,
 } from "@playwright/test/reporter";
-import Reporter, { createUploadArtifactImpl } from "../index.ts";
+import Reporter from "../index.ts";
+import { createArtifactUploader } from "../src/artifact.ts";
 import { GitHubReporter, type GitHubReporterOptions } from "../src/reporter.ts";
 import { FakeCore } from "./fakes.ts";
 import {
@@ -2305,7 +2306,7 @@ describe("Artifact upload outside GitHub Actions", () => {
 	});
 });
 
-describe("createUploadArtifactImpl coverage", () => {
+describe("createArtifactUploader", () => {
 	const originalToken = process.env.ACTIONS_RUNTIME_TOKEN;
 	const originalUrl = process.env.ACTIONS_RESULTS_URL;
 
@@ -2343,7 +2344,7 @@ describe("createUploadArtifactImpl coverage", () => {
 			throw new Error("boom");
 		});
 
-		const upload = createUploadArtifactImpl(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
+		const upload = createArtifactUploader(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
 
 		await expect(upload).rejects.toThrow("boom");
 		expect(warning).not.toHaveBeenCalled();
@@ -2361,7 +2362,7 @@ describe("createUploadArtifactImpl coverage", () => {
 		});
 		const { client, calls } = createClient(async () => ({ id: 1 }));
 
-		const upload = createUploadArtifactImpl(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
+		const upload = createArtifactUploader(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
 
 		await expect(upload).rejects.toThrow(Error);
 		expect(calls).toHaveLength(0);
@@ -2378,7 +2379,7 @@ describe("createUploadArtifactImpl coverage", () => {
 			{ name: "two", path: "/tmp/run/y/z/2.png" },
 		];
 
-		const result = await createUploadArtifactImpl(client)("shots", files);
+		const result = await createArtifactUploader(client)("shots", files);
 
 		expect(result).toStrictEqual({ id: 42 });
 		expect(calls[0]?.root).toBe("/tmp/run");
@@ -2399,7 +2400,7 @@ describe("createUploadArtifactImpl coverage", () => {
 		await writeFile(sourcePath, "image-bytes");
 		const { client, calls } = createClient(async () => ({ id: 1 }));
 
-		const upload = createUploadArtifactImpl(client)("shots", [{ name, path: sourcePath }]);
+		const upload = createArtifactUploader(client)("shots", [{ name, path: sourcePath }]);
 
 		await expect(upload).rejects.toThrow(/invalid artifact file name/i);
 		expect(calls).toHaveLength(0);
@@ -2427,7 +2428,7 @@ describe("createUploadArtifactImpl coverage", () => {
 		const warning = spyOn(coreModule, "warning").mockImplementation(() => {
 			// spy only, no implementation needed
 		});
-		const upload = createUploadArtifactImpl(client);
+		const upload = createArtifactUploader(client);
 		const files = [{ name: "renamed.png", path: sourcePath }];
 
 		await expect(upload("shots", files)).rejects.toThrow("upload failed");
@@ -2463,7 +2464,7 @@ describe("createUploadArtifactImpl coverage", () => {
 		}
 		const { client, calls } = createClient(async () => ({ id: 1 }));
 
-		const error = await createUploadArtifactImpl(client)("shots", [{ name: "1.png", path }]).catch((e: Error) => e);
+		const error = await createArtifactUploader(client)("shots", [{ name: "1.png", path }]).catch((e: Error) => e);
 		await rm(source, { recursive: true, force: true });
 
 		expect(error).toBeInstanceOf(Error);
@@ -2480,7 +2481,7 @@ describe("createUploadArtifactImpl coverage", () => {
 		await writeFile(sourcePath, "image-bytes");
 		const { client, calls } = createClient(async () => ({ id: undefined }));
 
-		const upload = createUploadArtifactImpl(client)("shots", [{ name: "renamed.png", path: sourcePath }]);
+		const upload = createArtifactUploader(client)("shots", [{ name: "renamed.png", path: sourcePath }]);
 
 		await expect(upload).rejects.toThrow("Artifact upload returned no ID");
 		const root = calls[0]?.root ?? "";
@@ -2500,7 +2501,7 @@ describe("createUploadArtifactImpl coverage", () => {
 		await writeFile(secondPath, "second-bytes");
 		const { client, calls } = createClient(async () => ({ id: 123 }));
 
-		const result = await createUploadArtifactImpl(client)("shots", [
+		const result = await createArtifactUploader(client)("shots", [
 			{ name: "first-renamed.png", path: firstPath },
 			{ name: "second-renamed.png", path: secondPath },
 		]);
@@ -2535,7 +2536,7 @@ describe("artifact upload failure diagnostics", () => {
 		delete process.env.ACTIONS_RUNTIME_TOKEN;
 		delete process.env.ACTIONS_RESULTS_URL;
 		const core = new FakeCore();
-		const upload = createUploadArtifactImpl();
+		const upload = createArtifactUploader();
 		core.uploadArtifact = (name, files) => upload(name, files);
 		const reporter = new GitHubReporter(core, { screenshots: true });
 		const testCase = createStubTestCase({

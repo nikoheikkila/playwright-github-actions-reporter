@@ -264,6 +264,8 @@ index.ts                  # Production entry point (wires @actions/core)
 src/
   reporter.ts             # GitHubReporter: implements Playwright's Reporter interface
   interface.ts            # Core / Summary / AnnotationProperties abstractions
+  artifact.ts             # Screenshot artifact upload via @actions/artifact
+  filenames.ts            # Artifact file name and path helpers
 test/
   reporter.test.ts        # Unit test suite (bun:test)
   fakes.ts                # FakeCore / FakeSummary for isolated testing

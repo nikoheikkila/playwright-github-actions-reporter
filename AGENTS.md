@@ -11,6 +11,7 @@ This project is a custom Playwright reporter that renders the run as a GitHub Ac
 
 - `index.ts` — default-exported `Reporter` that wires the real `@actions/core` into `GitHubReporter` for production use.
 - `src/reporter.ts` — `GitHubReporter` class implementing Reporter interface, plus the exported `GitHubReporterOptions` (`omitTags`, `title`) that `index.ts` re-exports.
+- `src/artifact.ts` — `createArtifactUploader`, the production `core.uploadArtifact`: checks the runtime variables, file names and file types, stages renamed files in a temp directory and uploads them with `@actions/artifact`. `src/filenames.ts` holds the file name and path helpers it uses.
 - `src/interface.ts` — minimal `Core` / `Summary` / `SummaryTableRow` / `AnnotationProperties` types mirroring the subset of `@actions/core` we use. Production code depends on these abstractions, not on `@actions/core` directly, so tests can substitute fakes.
 - `test/` — `bun:test` unit tests with `FakeCore` / `FakeSummary` (`test/fakes.ts`) and `createStubX` factories for Playwright fixtures (`test/stubs.ts`).
 - `e2e/` — Playwright suite (`example.spec.ts`) that intentionally contains passing / expected-failure / timing-out / flaky / failing-step / skipped tests; the rendered summary is diffed against `e2e/snapshots/summary.md`.

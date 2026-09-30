@@ -68,6 +68,10 @@ export class FakeSummary implements Summary {
 		return this;
 	}
 
+	public addLink(text: string, href: string): Summary {
+		return this.addRaw(`<a href="${href}">${text}</a>`, true);
+	}
+
 	public async write(): Promise<Summary> {
 		this.storedSummary = this.summaryBuffer;
 
