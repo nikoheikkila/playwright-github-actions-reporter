@@ -12,11 +12,15 @@ tasks:
     cmd: bun install --frozen-lockfile
 
   test:
-    cmd: bun test --coverage
+    env:
+      AGENT: "1"
+    cmd: bun test --parallel --coverage
 
   test:watch:
     interactive: true
-    cmd: bun test --watch
+    env:
+      AGENT: "1"
+    cmd: bun test --parallel --watch
 
   lint:
     sources: &typescript-sources

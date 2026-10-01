@@ -66,8 +66,9 @@ Run everything through Task — these are what CI runs.
 
 Ad-hoc variants:
 
-- Single test file: `bun test test/failures.test.ts`. Single test by name: `bun test -t "<name pattern>"`.
-- Update the `bun:test` snapshot (`test/__snapshots__/reporter.test.ts.snap`): `bun test --update-snapshots`.
+- Always run Bun tests with `--parallel` and `AGENT=1` set in the environment (`task test` does both). Ad-hoc `bun test` calls must too.
+- Single test file: `AGENT=1 bun test --parallel test/failures.test.ts`. Single test by name: `AGENT=1 bun test --parallel -t "<name pattern>"`.
+- Update the `bun:test` snapshot (`test/__snapshots__/reporter.test.ts.snap`): `AGENT=1 bun test --parallel --update-snapshots`.
 - Regenerate the e2e snapshot: `task verify summary=e2e/snapshots/summary.md`.
 
 ## Bun
