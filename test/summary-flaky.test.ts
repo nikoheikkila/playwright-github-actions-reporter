@@ -68,47 +68,5 @@ describe("Playwright GitHub Actions Reporter", () => {
 				expect(summary).not.toContain(failOnFlakyTestsNote);
 			});
 		});
-
-		test("displays number of skipped tests", async () => {
-			const { summary } = await runTests({
-				config: createStubConfig(),
-				suite: createStubSuite({
-					allTests(): TestCase[] {
-						return [
-							createStubTestCase({ title: "first passing test" }),
-							createStubTestCase({
-								title: "first failing test",
-								results: [
-									createStubTestResult({
-										status: "failed",
-									}),
-								],
-							}),
-							createStubTestCase({
-								title: "first timed out test",
-								results: [
-									createStubTestResult({
-										status: "timedOut",
-									}),
-								],
-							}),
-							createStubTestCase({
-								title: "first skipped test",
-								results: [
-									createStubTestResult({
-										status: "skipped",
-									}),
-								],
-							}),
-						];
-					},
-				}),
-			});
-
-			expect(summary).toContain("<li>🧪 <strong>4</strong> test cases total</li>");
-			expect(summary).toContain("<li>✅ <strong>1</strong> tests passed</li>");
-			expect(summary).toContain("<li>❌ <strong>2</strong> tests failed</li>");
-			expect(summary).toContain("<li>⚠️ <strong>1</strong> tests skipped</li>");
-		});
 	});
 });

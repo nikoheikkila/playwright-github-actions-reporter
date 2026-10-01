@@ -17,7 +17,7 @@ import {
 } from "./stubs.ts";
 
 describe("Playwright GitHub Actions Reporter", () => {
-	preserveEnv("GITHUB_WORKSPACE");
+	preserveEnv("GITHUB_WORKSPACE", "GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_SERVER_URL");
 	let core: FakeCore;
 	let reporter: GitHubReporter;
 

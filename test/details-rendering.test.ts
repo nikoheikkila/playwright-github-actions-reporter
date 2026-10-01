@@ -92,9 +92,10 @@ describe("Playwright GitHub Actions Reporter", () => {
 						allTests(): TestCase[] {
 							return [
 								createStubTestCase({
+									tags: ["@smoke"],
 									results: [
 										createStubTestResult({
-											retry: 1,
+											retry: 0,
 										}),
 									],
 								}),
