@@ -1,10 +1,9 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import type { DefaultArtifactClient } from "@actions/artifact";
-import * as coreModule from "@actions/core";
 import type {
 	FullConfig,
 	FullResult,
@@ -17,10 +16,13 @@ import type {
 import Reporter from "../index.ts";
 import { createArtifactUploader } from "../src/artifact.ts";
 import { GitHubReporter, type GitHubReporterOptions } from "../src/reporter.ts";
+import { preserveEnv, setRunEnvironment } from "./env.ts";
 import { FakeCore } from "./fakes.ts";
+import { section, silenceWarnings, withSourceFiles } from "./helpers.ts";
 import {
 	createStubAttachment,
 	createStubConfig,
+	createStubFailingTestCase,
 	createStubFullResult,
 	createStubProject,
 	createStubSuite,
@@ -34,7 +36,7 @@ import {
 type Status = TestResult["status"];
 
 describe("Playwright GitHub Actions Reporter", () => {
-	const originalWorkspace = process.env.GITHUB_WORKSPACE;
+	preserveEnv("GITHUB_WORKSPACE");
 	let core: FakeCore;
 	let reporter: GitHubReporter;
 
@@ -48,14 +50,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 		process.env.GITHUB_WORKSPACE = "/path/to";
 		core = new FakeCore();
 		reporter = new GitHubReporter(core);
-	});
-
-	afterEach(() => {
-		if (originalWorkspace === undefined) {
-			delete process.env.GITHUB_WORKSPACE;
-		} else {
-			process.env.GITHUB_WORKSPACE = originalWorkspace;
-		}
 	});
 
 	const count = (summary: string, label: string): number =>
@@ -926,23 +920,23 @@ describe("Playwright GitHub Actions Reporter", () => {
 		const titlePath = ["Tests", "example.spec.ts", "example test"];
 		const location = { file: "/path/to/example.spec.ts", line: 3, column: 7 };
 
-		const createFailingTestCase = (error: TestError) =>
-			createStubTestCase({
-				location,
-				titlePath(): string[] {
-					return titlePath;
-				},
-				results: [createStubTestResult({ status: "failed", errors: [error] })],
-			});
+		const annotated: Partial<TestCase> = {
+			location,
+			titlePath(): string[] {
+				return titlePath;
+			},
+		};
 
 		test("emits error annotation for unexpected test with error location", async () => {
 			await runTestCases(
-				createFailingTestCase(
-					createStubTestError({
-						message: "Expected 1 to be 2",
-						location: { file: "/path/to/test.ts", line: 10, column: 5 },
-					}),
-				),
+				createStubFailingTestCase(annotated, {
+					errors: [
+						createStubTestError({
+							message: "Expected 1 to be 2",
+							location: { file: "/path/to/test.ts", line: 10, column: 5 },
+						}),
+					],
+				}),
 			);
 
 			expect(core.errorAnnotations).toEqual([
@@ -959,7 +953,9 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("falls back to test location when error has no location", async () => {
-			await runTestCases(createFailingTestCase(createStubTestError({ location: undefined })));
+			await runTestCases(
+				createStubFailingTestCase(annotated, { errors: [createStubTestError({ location: undefined })] }),
+			);
 
 			expect(core.errorAnnotations).toEqual([
 				{
@@ -975,13 +971,19 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("strips ANSI escape sequences from error message", async () => {
-			await runTestCases(createFailingTestCase(createStubTestError({ message: "\x1b[31mRed\x1b[0m" })));
+			await runTestCases(
+				createStubFailingTestCase(annotated, { errors: [createStubTestError({ message: "\x1b[31mRed\x1b[0m" })] }),
+			);
 
 			expect(core.errorAnnotations).toContainEqual(expect.objectContaining({ message: "Red" }));
 		});
 
 		test("falls back to the unexpected status when error has neither message nor value", async () => {
-			await runTestCases(createFailingTestCase(createStubTestError({ message: undefined, value: undefined })));
+			await runTestCases(
+				createStubFailingTestCase(annotated, {
+					errors: [createStubTestError({ message: undefined, value: undefined })],
+				}),
+			);
 
 			expect(core.errorAnnotations).toContainEqual(expect.objectContaining({ message: "Unexpected status: failed" }));
 		});
@@ -1131,9 +1133,9 @@ describe("Playwright GitHub Actions Reporter", () => {
 			process.env.GITHUB_WORKSPACE = "/home/user/project";
 
 			await runTestCases(
-				createFailingTestCase(
-					createStubTestError({ location: { file: "/home/user/project/src/test.ts", line: 1, column: 1 } }),
-				),
+				createStubFailingTestCase(annotated, {
+					errors: [createStubTestError({ location: { file: "/home/user/project/src/test.ts", line: 1, column: 1 } })],
+				}),
 			);
 
 			expect(core.errorAnnotations).toContainEqual(
@@ -1145,7 +1147,11 @@ describe("Playwright GitHub Actions Reporter", () => {
 			delete process.env.GITHUB_WORKSPACE;
 			const file = join(process.cwd(), "src", "test.ts");
 
-			await runTestCases(createFailingTestCase(createStubTestError({ location: { file, line: 1, column: 1 } })));
+			await runTestCases(
+				createStubFailingTestCase(annotated, {
+					errors: [createStubTestError({ location: { file, line: 1, column: 1 } })],
+				}),
+			);
 
 			expect(core.errorAnnotations).toContainEqual(
 				expect.objectContaining({ properties: expect.objectContaining({ file: relative(process.cwd(), file) }) }),
@@ -1156,15 +1162,11 @@ describe("Playwright GitHub Actions Reporter", () => {
 	describe("Failure details", () => {
 		const failuresHeading = "<h3>Failures</h3>";
 
-		const createFailingTestCase = (result: Partial<TestResult> = {}, title = "example test") =>
-			createStubTestCase({
-				titlePath(): string[] {
-					return ["Tests", "example.spec.ts", title];
-				},
-				results: [createStubTestResult({ status: "failed", errors: [createStubTestError()], ...result })],
-			});
-
-		const failureDetails = (summary: string): string => summary.slice(summary.indexOf(failuresHeading));
+		const inSpec = (title = "example test"): Partial<TestCase> => ({
+			titlePath(): string[] {
+				return ["Tests", "example.spec.ts", title];
+			},
+		});
 
 		test("does not render failure details when no tests failed", async () => {
 			const { summary } = await runTestCases(
@@ -1187,23 +1189,23 @@ describe("Playwright GitHub Actions Reporter", () => {
 		test("renders one details block per unexpected test", async () => {
 			const { summary } = await runTestCases(
 				createStubTestCase(),
-				createFailingTestCase({}, "first failing test"),
-				createFailingTestCase({ status: "timedOut" }, "first timed out test"),
+				createStubFailingTestCase(inSpec("first failing test")),
+				createStubFailingTestCase(inSpec("first timed out test"), { status: "timedOut" }),
 			);
 
 			expect(summary).toContain(`</details>${failuresHeading}`);
-			expect(failureDetails(summary).match(/<details>/g)).toHaveLength(2);
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading).match(/<details>/g)).toHaveLength(2);
+			expect(section(summary, failuresHeading)).toContain(
 				"<details><summary>❌ Tests » example.spec.ts » first failing test</summary><div><pre>Error message</pre></div></details>",
 			);
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading)).toContain(
 				"<details><summary>❌ Tests » example.spec.ts » first timed out test</summary><div><pre>Error message</pre></div></details>",
 			);
 		});
 
 		test("renders step chain with subtitle when present", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					steps: [
 						createStubTestStep({ title: "Open cart" }),
 						createStubTestStep({
@@ -1216,24 +1218,24 @@ describe("Playwright GitHub Actions Reporter", () => {
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading)).toContain(
 				'<div><p><strong>Step:</strong> <code>Add to cart (SKU 42) » Expect "toBe"</code></p><pre>Error message</pre></div>',
 			);
 		});
 
 		test("renders step chain without subtitle when absent", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					steps: [createStubTestStep({ title: "Add to cart", error: createStubTestError() })],
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain("<p><strong>Step:</strong> <code>Add to cart</code></p>");
+			expect(section(summary, failuresHeading)).toContain("<p><strong>Step:</strong> <code>Add to cart</code></p>");
 		});
 
 		test("renders multiple errors from the same result", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					errors: [
 						createStubTestError({ message: "First error" }),
 						createStubTestError({ message: undefined, value: "Second error" }),
@@ -1241,32 +1243,32 @@ describe("Playwright GitHub Actions Reporter", () => {
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain("<div><pre>First error</pre><pre>Second error</pre></div>");
+			expect(section(summary, failuresHeading)).toContain("<div><pre>First error</pre><pre>Second error</pre></div>");
 		});
 
 		test("includes snippet when present", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					errors: [createStubTestError({ snippet: "  10 | expect(1 + 1).toBe(3);" })],
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading)).toContain(
 				"<div><pre>Error message</pre><pre>  10 | expect(1 + 1).toBe(3);</pre></div>",
 			);
 		});
 
 		test("omits snippet when not present", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({ errors: [createStubTestError({ snippet: undefined })] }),
+				createStubFailingTestCase(inSpec(), { errors: [createStubTestError({ snippet: undefined })] }),
 			);
 
-			expect(failureDetails(summary)).toContain("<div><pre>Error message</pre></div>");
+			expect(section(summary, failuresHeading)).toContain("<div><pre>Error message</pre></div>");
 		});
 
 		test("strips ANSI and escapes HTML in message and snippet", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					errors: [
 						createStubTestError({
 							message: "\x1b[31mExpected <div> & more\x1b[0m",
@@ -1276,14 +1278,14 @@ describe("Playwright GitHub Actions Reporter", () => {
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading)).toContain(
 				"<pre>Expected &lt;div&gt; &amp; more</pre><pre>&gt; 10 | render(&lt;div /&gt;);</pre>",
 			);
 		});
 
 		test("encodes newlines in message and snippet so each block stays on one Markdown line", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					errors: [
 						createStubTestError({
 							message: "Error: expect(received).toBe(expected)\n\nExpected: 3\nReceived: 2",
@@ -1293,30 +1295,30 @@ describe("Playwright GitHub Actions Reporter", () => {
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading)).toContain(
 				"<pre>Error: expect(received).toBe(expected)&#10;&#10;Expected: 3&#10;Received: 2</pre><pre>  10 | test(() =&gt; {&#10;&gt; 11 |   expect(1 + 1).toBe(3);</pre>",
 			);
 		});
 
 		test("HTML-escapes the title path in the Failures summary", async () => {
-			const { summary } = await runTestCases(createFailingTestCase({}, "renders <dangerous> path"));
+			const { summary } = await runTestCases(createStubFailingTestCase(inSpec("renders <dangerous> path")));
 
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading)).toContain(
 				"<summary>❌ Tests » example.spec.ts » renders &lt;dangerous&gt; path</summary>",
 			);
 		});
 
 		test("collapses multi-line test title to single space", async () => {
-			const { summary } = await runTestCases(createFailingTestCase({}, "multi\r\nline\rexample\ntest"));
+			const { summary } = await runTestCases(createStubFailingTestCase(inSpec("multi\r\nline\rexample\ntest")));
 
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading)).toContain(
 				"<summary>❌ Tests » example.spec.ts » multi line example test</summary>",
 			);
 		});
 
 		test("collapses multi-line step title and subtitle in the step chain", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					steps: [
 						createStubTestStep({
 							title: "Add\nto cart",
@@ -1327,24 +1329,24 @@ describe("Playwright GitHub Actions Reporter", () => {
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain("<code>Add to cart (SKU 42)</code>");
+			expect(section(summary, failuresHeading)).toContain("<code>Add to cart (SKU 42)</code>");
 		});
 
 		test("normalises \\r\\n and \\r line endings in message and snippet", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					errors: [createStubTestError({ message: "first\r\nsecond\rthird", snippet: "  10 | a\r\n> 11 | b" })],
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain(
+			expect(section(summary, failuresHeading)).toContain(
 				"<pre>first&#10;second&#10;third</pre><pre>  10 | a&#10;&gt; 11 | b</pre>",
 			);
 		});
 
 		test("HTML-escapes step title and subtitle in the step chain", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({
+				createStubFailingTestCase(inSpec(), {
 					steps: [
 						createStubTestStep({
 							title: "Add <item> to cart",
@@ -1355,24 +1357,26 @@ describe("Playwright GitHub Actions Reporter", () => {
 				}),
 			);
 
-			expect(failureDetails(summary)).toContain("<code>Add &lt;item&gt; to cart (SKU &amp; price)</code>");
+			expect(section(summary, failuresHeading)).toContain("<code>Add &lt;item&gt; to cart (SKU &amp; price)</code>");
 		});
 
 		test("omits step section when no step has error", async () => {
 			const { summary } = await runTestCases(
-				createFailingTestCase({ steps: [createStubTestStep({ title: "Add to cart" })] }),
+				createStubFailingTestCase(inSpec(), { steps: [createStubTestStep({ title: "Add to cart" })] }),
 			);
 
-			expect(failureDetails(summary)).toContain("<div><pre>Error message</pre></div>");
-			expect(failureDetails(summary)).not.toContain("<strong>Step:</strong>");
+			expect(section(summary, failuresHeading)).toContain("<div><pre>Error message</pre></div>");
+			expect(section(summary, failuresHeading)).not.toContain("<strong>Step:</strong>");
 		});
 
 		test("never includes stack in failure details", async () => {
 			const stack = "Error: Error message\n    at /path/to/example.spec.ts:3:7";
 
-			const { summary } = await runTestCases(createFailingTestCase({ errors: [createStubTestError({ stack })] }));
+			const { summary } = await runTestCases(
+				createStubFailingTestCase(inSpec(), { errors: [createStubTestError({ stack })] }),
+			);
 
-			expect(failureDetails(summary)).toContain("<div><pre>Error message</pre></div>");
+			expect(section(summary, failuresHeading)).toContain("<div><pre>Error message</pre></div>");
 			expect(summary).not.toContain("/path/to/example.spec.ts");
 		});
 	});
@@ -1386,8 +1390,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			return { summary: core.summary.stringify() };
 		};
-
-		const errorDetails = (summary: string): string => summary.slice(summary.indexOf(errorsHeading));
 
 		const createNamedWorkerInfo = (name: string): WorkerInfo =>
 			createStubWorkerInfo({ project: createStubProject({ name }) });
@@ -1484,11 +1486,11 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			const { summary } = await finishRun();
 
-			expect(errorDetails(summary).match(/<details>/g)).toHaveLength(2);
-			expect(errorDetails(summary)).toContain(
+			expect(section(summary, errorsHeading).match(/<details>/g)).toHaveLength(2);
+			expect(section(summary, errorsHeading)).toContain(
 				"<details><summary>Error outside tests</summary><pre>First error</pre></details>",
 			);
-			expect(errorDetails(summary)).toContain(
+			expect(section(summary, errorsHeading)).toContain(
 				"<details><summary>Error outside tests (firefox)</summary><pre>Second error</pre></details>",
 			);
 		});
@@ -1498,7 +1500,9 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			const { summary } = await finishRun();
 
-			expect(errorDetails(summary)).toContain("<pre>Error message</pre><pre>&gt; 4 | throw new Error();</pre>");
+			expect(section(summary, errorsHeading)).toContain(
+				"<pre>Error message</pre><pre>&gt; 4 | throw new Error();</pre>",
+			);
 		});
 
 		test("never renders stack in error details", async () => {
@@ -1506,7 +1510,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			const { summary } = await finishRun();
 
-			expect(errorDetails(summary)).toContain("<pre>Error message</pre></details>");
+			expect(section(summary, errorsHeading)).toContain("<pre>Error message</pre></details>");
 			expect(summary).not.toContain("global-setup.ts");
 		});
 
@@ -1523,7 +1527,9 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			const { summary } = await finishRun();
 
-			expect(errorDetails(summary)).toContain("<summary>Error outside tests (&lt;chromium&gt; &amp; more)</summary>");
+			expect(section(summary, errorsHeading)).toContain(
+				"<summary>Error outside tests (&lt;chromium&gt; &amp; more)</summary>",
+			);
 		});
 
 		test("collapses line breaks in project name within error title", async () => {
@@ -1531,7 +1537,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			const { summary } = await finishRun();
 
-			expect(errorDetails(summary)).toContain("<summary>Error outside tests (chromium desktop)</summary>");
+			expect(section(summary, errorsHeading)).toContain("<summary>Error outside tests (chromium desktop)</summary>");
 		});
 
 		test("renders both Failures and Errors sections in order", async () => {
@@ -1565,7 +1571,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			const { summary } = await finishRun();
 
-			expect(errorDetails(summary)).toContain("<pre>first&#10;second&#10;third&#10;fourth</pre>");
+			expect(section(summary, errorsHeading)).toContain("<pre>first&#10;second&#10;third&#10;fourth</pre>");
 		});
 	});
 
@@ -1796,36 +1802,25 @@ describe("Playwright GitHub Actions Reporter", () => {
 	});
 	describe("Screenshots", () => {
 		// Real artifact upload is verified only on GitHub Actions; this test uses the FakeCore mock.
-		const envKeys = ["GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_SERVER_URL"] as const;
-		const originalEnv = envKeys.map((key) => process.env[key]);
-
-		afterEach(() => {
-			envKeys.forEach((key, index) => {
-				const value = originalEnv[index];
-				if (value === undefined) {
-					delete process.env[key];
-				} else {
-					process.env[key] = value;
-				}
-			});
-		});
+		preserveEnv("GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_SERVER_URL");
 
 		test("uploads screenshots under unique, file-name-safe names derived from the test", async () => {
 			reporter = new GitHubReporter(core, { screenshots: true });
-			const failing = (id: string, title: string) =>
-				createStubTestCase({
-					id,
-					title,
-					results: [
-						createStubTestResult({
-							status: "failed",
-							errors: [createStubTestError()],
-							attachments: [createStubAttachment({ name: "screenshot.png", path: `/tmp/${id}/screenshot.png` })],
-						}),
-					],
-				});
 
-			await runTestCases(failing("a1", "logs in / out"), failing("b2", "logs in / out"), failing("c3", "other: test?"));
+			await runTestCases(
+				createStubFailingTestCase(
+					{ id: "a1", title: "logs in / out" },
+					{ attachments: [createStubAttachment({ name: "screenshot.png", path: "/tmp/a1/screenshot.png" })] },
+				),
+				createStubFailingTestCase(
+					{ id: "b2", title: "logs in / out" },
+					{ attachments: [createStubAttachment({ name: "screenshot.png", path: "/tmp/b2/screenshot.png" })] },
+				),
+				createStubFailingTestCase(
+					{ id: "c3", title: "other: test?" },
+					{ attachments: [createStubAttachment({ name: "screenshot.png", path: "/tmp/c3/screenshot.png" })] },
+				),
+			);
 
 			const names = core.uploadedArtifacts[0]?.files.map(({ name }) => name) ?? [];
 			expect(names).toHaveLength(3);
@@ -1837,19 +1832,14 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 		test("indexes screenshot names only when a test has several PNG attachments", async () => {
 			reporter = new GitHubReporter(core, { screenshots: true });
-			const failing = (id: string, paths: string[]) =>
-				createStubTestCase({
-					id,
-					results: [
-						createStubTestResult({
-							status: "failed",
-							errors: [createStubTestError()],
-							attachments: paths.map((path) => createStubAttachment({ path })),
-						}),
-					],
-				});
 
-			await runTestCases(failing("a1", ["/tmp/one.png", "/tmp/two.png"]), failing("b2", ["/tmp/solo.png"]));
+			await runTestCases(
+				createStubFailingTestCase(
+					{ id: "a1" },
+					{ attachments: ["/tmp/one.png", "/tmp/two.png"].map((path) => createStubAttachment({ path })) },
+				),
+				createStubFailingTestCase({ id: "b2" }, { attachments: [createStubAttachment({ path: "/tmp/solo.png" })] }),
+			);
 
 			expect(core.uploadedArtifacts[0]?.files.map(({ name }) => name)).toStrictEqual([
 				"a1-0.png",
@@ -1859,9 +1849,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("links the uploaded screenshot artifact in the Failures section", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			reporter = new GitHubReporter(core, { screenshots: true });
 
 			const { summary } = await runTestCases(
@@ -1880,15 +1868,13 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const url = "https://github.com/owner/repo/actions/runs/999/artifacts/42";
 			expect(core.uploadedArtifacts.map(({ name }) => name)).toStrictEqual(["playwright-screenshots"]);
 			const link = `<a href="${url}">Screenshots</a>`;
-			const failures = summary.slice(summary.indexOf("<h3>Failures</h3>"));
+			const failures = section(summary, "<h3>Failures</h3>");
 			const beforeFirstDetails = failures.slice(0, failures.indexOf("<details>"));
 			expect(beforeFirstDetails).toContain(link);
 			expect(summary.split(link)).toHaveLength(2);
 		});
 		test("uploads webm videos of failing tests and links the artifact once in the Failures section", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			reporter = new GitHubReporter(core, { videos: true });
 
 			const { summary } = await runTestCases(
@@ -1910,7 +1896,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(core.uploadedArtifacts.map(({ name }) => name)).toStrictEqual(["playwright-videos"]);
 			expect(core.uploadedArtifacts[0]?.files.map(({ name }) => name)).toStrictEqual(["a1.webm"]);
 			const link = '<a href="https://github.com/owner/repo/actions/runs/999/artifacts/42">Videos</a>';
-			const failures = summary.slice(summary.indexOf("<h3>Failures</h3>"));
+			const failures = section(summary, "<h3>Failures</h3>");
 			expect(failures.slice(0, failures.indexOf("<details>"))).toContain(link);
 			expect(summary.split(link)).toHaveLength(2);
 		});
@@ -1941,9 +1927,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		test.each(["GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"] as const)(
 			"renders no link and warns when %s is missing",
 			async (missing) => {
-				process.env.GITHUB_RUN_ID = "999";
-				process.env.GITHUB_REPOSITORY = "owner/repo";
-				process.env.GITHUB_SERVER_URL = "https://github.com";
+				setRunEnvironment();
 				delete process.env[missing];
 				reporter = new GitHubReporter(core, { screenshots: true });
 
@@ -1968,9 +1952,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		);
 
 		test("continues rendering failures when uploadArtifact throws", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			core.setUploadArtifactThrow(new Error("Upload failed: network error"));
 			reporter = new GitHubReporter(core, { screenshots: true });
 
@@ -1998,9 +1980,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("continues rendering failures and warns once when the video upload throws", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			core.setUploadArtifactThrow(new Error("Upload failed: network error"));
 			reporter = new GitHubReporter(core, { videos: true });
 
@@ -2035,9 +2015,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 			["unset", undefined],
 			["false", { screenshots: false }],
 		])("uploads nothing, links nothing and warns about nothing when screenshots is %s", async (_label, options) => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			reporter = new GitHubReporter(core, options);
 
 			const { summary } = await runTestCases(
@@ -2059,9 +2037,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("excludes flaky, skipped, passed, earlier retries, non-PNG, and missing-path attachments", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			reporter = new GitHubReporter(core, { screenshots: true });
 			const png = (path: string) => createStubAttachment({ path });
 			const failed = (path?: string, contentType = "image/png") =>
@@ -2108,9 +2084,8 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("escapes special characters in GITHUB_REPOSITORY in the screenshot link href", async () => {
-			process.env.GITHUB_RUN_ID = "999";
+			setRunEnvironment();
 			process.env.GITHUB_REPOSITORY = "owner/repo<script>";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
 			reporter = new GitHubReporter(core, { screenshots: true });
 
 			const { summary } = await runTestCases(
@@ -2133,36 +2108,28 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("appears exactly once in Failures section across multiple failing tests", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			reporter = new GitHubReporter(core, { screenshots: true });
-			const failing = (id: string) =>
-				createStubTestCase({
-					id,
-					title: `fails ${id}`,
-					results: [
-						createStubTestResult({
-							status: "failed",
-							errors: [createStubTestError()],
-							attachments: [createStubAttachment({ path: `/tmp/${id}.png` })],
-						}),
-					],
-				});
 
-			const { summary } = await runTestCases(failing("a1"), failing("b2"), failing("c3"));
+			const { summary } = await runTestCases(
+				...["a1", "b2", "c3"].map((id) =>
+					createStubFailingTestCase(
+						{ id, title: `fails ${id}` },
+						{ attachments: [createStubAttachment({ path: `/tmp/${id}.png` })] },
+					),
+				),
+			);
 
 			const link = '<a href="https://github.com/owner/repo/actions/runs/999/artifacts/42">Screenshots</a>';
-			const failuresIndex = summary.indexOf("<h3>Failures</h3>");
+			const failures = section(summary, "<h3>Failures</h3>");
 			expect(summary.split(link)).toHaveLength(2);
-			expect(summary.indexOf(link)).toBeGreaterThan(failuresIndex);
-			expect(summary.slice(0, failuresIndex)).not.toContain(link);
+			expect(failures).toContain(link);
+			expect(summary.replace(failures, "")).not.toContain(link);
 		});
 
 		test("escapes quotes in GITHUB_REPOSITORY in the screenshot link href", async () => {
-			process.env.GITHUB_RUN_ID = "999";
+			setRunEnvironment();
 			process.env.GITHUB_REPOSITORY = 'owner/repo"';
-			process.env.GITHUB_SERVER_URL = "https://github.com";
 			reporter = new GitHubReporter(core, { screenshots: true });
 
 			const { summary } = await runTestCases(
@@ -2185,8 +2152,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("treats empty GITHUB_SERVER_URL like missing and renders no link", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
+			setRunEnvironment();
 			process.env.GITHUB_SERVER_URL = "";
 			reporter = new GitHubReporter(core, { screenshots: true });
 
@@ -2210,9 +2176,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("has the screenshot link in the Failures section after onEnd, before onExit", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			reporter = new GitHubReporter(core, { screenshots: true });
 			const testCase = createStubTestCase({
 				title: "fails with a screenshot",
@@ -2244,9 +2208,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("uploads nothing with zero unexpected tests when screenshots is true", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			reporter = new GitHubReporter(core, { screenshots: true });
 
 			const { summary } = await runTestCases(
@@ -2262,9 +2224,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("uploads nothing for unexpected tests with no PNG attachments", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
+			setRunEnvironment();
 			reporter = new GitHubReporter(core, { screenshots: true });
 
 			const { summary } = await runTestCases(
@@ -2285,74 +2245,65 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(core.warningAnnotations).toStrictEqual([]);
 		});
 	});
-});
 
-describe("Artifact upload outside GitHub Actions", () => {
-	const saved = { token: process.env.ACTIONS_RUNTIME_TOKEN, url: process.env.ACTIONS_RESULTS_URL };
-	const originalWrite = process.stdout.write;
-	let output: string;
+	describe("Artifact upload outside GitHub Actions", () => {
+		preserveEnv("ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL");
+		const originalWrite = process.stdout.write;
+		let output: string;
 
-	beforeEach(() => {
-		output = "";
-		process.stdout.write = ((chunk: string | Uint8Array) => {
-			output += String(chunk);
-			return true;
-		}) as typeof process.stdout.write;
-	});
-
-	afterEach(() => {
-		process.stdout.write = originalWrite;
-		for (const [key, value] of [
-			["ACTIONS_RUNTIME_TOKEN", saved.token],
-			["ACTIONS_RESULTS_URL", saved.url],
-		] as const) {
-			if (value === undefined) {
-				delete process.env[key];
-			} else {
-				process.env[key] = value;
-			}
-		}
-	});
-
-	test("emits a warning when ACTIONS_RUNTIME_TOKEN is missing", async () => {
-		delete process.env.ACTIONS_RUNTIME_TOKEN;
-		delete process.env.ACTIONS_RESULTS_URL;
-		const reporter = new Reporter({ screenshots: true });
-		const testCase = createStubTestCase({
-			results: [
-				createStubTestResult({
-					status: "failed",
-					errors: [createStubTestError()],
-					attachments: [createStubAttachment()],
-				}),
-			],
+		beforeEach(() => {
+			output = "";
+			process.stdout.write = ((chunk: string | Uint8Array) => {
+				output += String(chunk);
+				return true;
+			}) as typeof process.stdout.write;
 		});
 
-		reporter.onBegin(createStubConfig(), createStubSuite({ allTests: () => [testCase] }));
-		reporter.onTestEnd(testCase, testCase.results[0] as TestResult);
-		await reporter.onEnd(createStubFullResult());
+		afterEach(() => {
+			process.stdout.write = originalWrite;
+		});
 
-		expect(output).not.toContain("Skipping artifact upload");
-		expect(output.split("::warning::").length - 1).toBe(1);
-		expect(output).toContain("Actions runtime variables");
+		test("warns exactly once when the Actions runtime variables are missing", async () => {
+			delete process.env.ACTIONS_RUNTIME_TOKEN;
+			delete process.env.ACTIONS_RESULTS_URL;
+			const upload = createArtifactUploader();
+			core.uploadArtifact = (name, files) => upload(name, files);
+			reporter = new GitHubReporter(core, { screenshots: true });
+			const testCase = createStubTestCase({
+				results: [
+					createStubTestResult({
+						status: "failed",
+						errors: [createStubTestError()],
+						attachments: [createStubAttachment()],
+					}),
+				],
+			});
+
+			const { summary } = await runTestCases(testCase);
+
+			expect(core.warningAnnotations).toHaveLength(1);
+			expect(core.warningAnnotations[0]?.message).toContain("Actions runtime variables");
+			expect(core.isFailed).toBe(false);
+			expect(summary).not.toContain("Screenshots</a>");
+			expect(summary).not.toContain("undefined");
+
+			const defaultReporter = new Reporter({ screenshots: true });
+			defaultReporter.onBegin(createStubConfig(), createStubSuite({ allTests: () => [testCase] }));
+			defaultReporter.onTestEnd(testCase, testCase.results[0] as TestResult);
+			await defaultReporter.onEnd(createStubFullResult());
+
+			expect(output.split("::warning::").length - 1).toBe(1);
+			expect(output).not.toContain("Skipping artifact upload");
+		});
 	});
 });
 
 describe("createArtifactUploader", () => {
-	const originalToken = process.env.ACTIONS_RUNTIME_TOKEN;
-	const originalUrl = process.env.ACTIONS_RESULTS_URL;
+	preserveEnv("ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL", "TMPDIR");
 
-	const restore = (key: string, value: string | undefined) => {
-		if (value === undefined) {
-			delete process.env[key];
-		} else {
-			process.env[key] = value;
-		}
-	};
-
-	afterEach(() => {
-		restore("ACTIONS_RUNTIME_TOKEN", originalToken);
-		restore("ACTIONS_RESULTS_URL", originalUrl);
+	beforeEach(() => {
+		process.env.ACTIONS_RUNTIME_TOKEN = "token";
+		process.env.ACTIONS_RESULTS_URL = "https://results.example";
 	});
 
 	const createClient = (behaviour: () => Promise<{ id?: number }>) => {
@@ -2367,11 +2318,7 @@ describe("createArtifactUploader", () => {
 	};
 
 	test("throws instead of warning when the client throws", async () => {
-		process.env.ACTIONS_RUNTIME_TOKEN = "token";
-		process.env.ACTIONS_RESULTS_URL = "https://results.example";
-		const warning = spyOn(coreModule, "warning").mockImplementation(() => {
-			// spy only, no implementation needed
-		});
+		const warning = silenceWarnings();
 		const { client } = createClient(async () => {
 			throw new Error("boom");
 		});
@@ -2389,9 +2336,7 @@ describe("createArtifactUploader", () => {
 	])("throws and skips the client when %s is missing", async (missing, present) => {
 		process.env[present] = "value";
 		delete process.env[missing];
-		const warning = spyOn(coreModule, "warning").mockImplementation(() => {
-			// spy only, no implementation needed
-		});
+		const warning = silenceWarnings();
 		const { client, calls } = createClient(async () => ({ id: 1 }));
 
 		const upload = createArtifactUploader(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
@@ -2403,8 +2348,6 @@ describe("createArtifactUploader", () => {
 	});
 
 	test("uploads with the common ancestor of all file paths as root directory", async () => {
-		process.env.ACTIONS_RUNTIME_TOKEN = "token";
-		process.env.ACTIONS_RESULTS_URL = "https://results.example";
 		const { client, calls } = createClient(async () => ({ id: 42 }));
 		const files = [
 			{ name: "one", path: "/tmp/run/x/1.png" },
@@ -2425,29 +2368,19 @@ describe("createArtifactUploader", () => {
 		["backslash separator", "nested\\evil.png"],
 		["directory traversal", ".."],
 	])("rejects %s file name before staging or uploading anything", async (_case, name) => {
-		process.env.ACTIONS_RUNTIME_TOKEN = "token";
-		process.env.ACTIONS_RESULTS_URL = "https://results.example";
-		const source = await mkdtemp(join(tmpdir(), "reporter-source-"));
-		const sourcePath = join(source, "1.png");
-		await writeFile(sourcePath, "image-bytes");
-		const { client, calls } = createClient(async () => ({ id: 1 }));
+		await withSourceFiles({ "1.png": "image-bytes" }, async (source) => {
+			const { client, calls } = createClient(async () => ({ id: 1 }));
 
-		const upload = createArtifactUploader(client)("shots", [{ name, path: sourcePath }]);
+			const upload = createArtifactUploader(client)("shots", [{ name, path: join(source, "1.png") }]);
 
-		await expect(upload).rejects.toThrow(/invalid artifact file name/i);
-		expect(calls).toHaveLength(0);
-		await rm(source, { recursive: true, force: true });
+			await expect(upload).rejects.toThrow(/invalid artifact file name/i);
+			expect(calls).toHaveLength(0);
+		});
 	});
 
 	test("stages renamed files in a unique private mkdtemp directory under os.tmpdir and removes it afterwards", async () => {
-		process.env.ACTIONS_RUNTIME_TOKEN = "token";
-		process.env.ACTIONS_RESULTS_URL = "https://results.example";
-		const originalTmpdir = process.env.TMPDIR;
 		delete process.env.TMPDIR;
 		const uploadTmpdir = tmpdir();
-		const source = await mkdtemp(join(uploadTmpdir, "reporter-source-"));
-		const sourcePath = join(source, "1.png");
-		await writeFile(sourcePath, "image-bytes");
 		const seen: Array<{ root: string; staged: string; mode: number }> = [];
 		const client = {
 			uploadArtifact: async (_name: string, files: string[], root: string) => {
@@ -2457,18 +2390,17 @@ describe("createArtifactUploader", () => {
 				throw new Error("upload failed");
 			},
 		} as unknown as DefaultArtifactClient;
-		const warning = spyOn(coreModule, "warning").mockImplementation(() => {
-			// spy only, no implementation needed
-		});
-		const upload = createArtifactUploader(client);
-		const files = [{ name: "renamed.png", path: sourcePath }];
+		const warning = silenceWarnings();
 
-		await expect(upload("shots", files)).rejects.toThrow("upload failed");
-		await expect(upload("shots", files)).rejects.toThrow("upload failed");
+		await withSourceFiles({ "1.png": "image-bytes" }, async (source) => {
+			const upload = createArtifactUploader(client);
+			const files = [{ name: "renamed.png", path: join(source, "1.png") }];
+
+			await expect(upload("shots", files)).rejects.toThrow("upload failed");
+			await expect(upload("shots", files)).rejects.toThrow("upload failed");
+		});
 
 		warning.mockRestore();
-		restore("TMPDIR", originalTmpdir);
-		await rm(source, { recursive: true, force: true });
 		const [first, second] = seen;
 		expect(seen).toHaveLength(2);
 		expect(first?.staged).toBe("image-bytes");
@@ -2483,113 +2415,55 @@ describe("createArtifactUploader", () => {
 		["a symlink to another file", "symlink"],
 		["a directory", "directory"],
 	])("rejects %s as a non-regular attachment before uploading anything", async (_case, kind) => {
-		process.env.ACTIONS_RUNTIME_TOKEN = "token";
-		process.env.ACTIONS_RESULTS_URL = "https://results.example";
-		const source = await mkdtemp(join(tmpdir(), "reporter-source-"));
-		const target = join(source, "secret.txt");
-		await writeFile(target, "secret-contents");
-		const path = join(source, "1.png");
-		if (kind === "symlink") {
-			await symlink(target, path);
-		} else {
-			await mkdir(path);
-		}
-		const { client, calls } = createClient(async () => ({ id: 1 }));
+		await withSourceFiles({ "secret.txt": "secret-contents" }, async (source) => {
+			const target = join(source, "secret.txt");
+			const path = join(source, "1.png");
+			if (kind === "symlink") {
+				await symlink(target, path);
+			} else {
+				await mkdir(path);
+			}
+			const { client, calls } = createClient(async () => ({ id: 1 }));
 
-		const error = await createArtifactUploader(client)("shots", [{ name: "1.png", path }]).catch((e: Error) => e);
-		await rm(source, { recursive: true, force: true });
+			const error = await createArtifactUploader(client)("shots", [{ name: "1.png", path }]).catch((e: Error) => e);
 
-		expect(error).toBeInstanceOf(Error);
-		expect((error as Error).message).not.toContain("secret-contents");
-		expect((error as Error).message).not.toContain(source);
-		expect(calls).toHaveLength(0);
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).not.toContain("secret-contents");
+			expect((error as Error).message).not.toContain(source);
+			expect(calls).toHaveLength(0);
+		});
 	});
 
 	test("throws 'Artifact upload returned no ID' when client returns undefined id, and cleans up staging directory", async () => {
-		process.env.ACTIONS_RUNTIME_TOKEN = "token";
-		process.env.ACTIONS_RESULTS_URL = "https://results.example";
-		const source = await mkdtemp(join(tmpdir(), "reporter-source-"));
-		const sourcePath = join(source, "1.png");
-		await writeFile(sourcePath, "image-bytes");
 		const { client, calls } = createClient(async () => ({ id: undefined }));
 
-		const upload = createArtifactUploader(client)("shots", [{ name: "renamed.png", path: sourcePath }]);
+		await withSourceFiles({ "1.png": "image-bytes" }, async (source) => {
+			const upload = createArtifactUploader(client)("shots", [{ name: "renamed.png", path: join(source, "1.png") }]);
 
-		await expect(upload).rejects.toThrow("Artifact upload returned no ID");
+			await expect(upload).rejects.toThrow("Artifact upload returned no ID");
+		});
+
 		const root = calls[0]?.root ?? "";
-		await rm(source, { recursive: true, force: true });
 		expect(calls).toHaveLength(1);
 		expect(root).not.toBe("");
 		expect(existsSync(root)).toBe(false);
 	});
 
 	test("succeeds with real files, uses unique staged names, and cleans up staging directory", async () => {
-		process.env.ACTIONS_RUNTIME_TOKEN = "token";
-		process.env.ACTIONS_RESULTS_URL = "https://results.example";
-		const source = await mkdtemp(join(tmpdir(), "reporter-source-"));
-		const firstPath = join(source, "a.png");
-		const secondPath = join(source, "b.png");
-		await writeFile(firstPath, "first-bytes");
-		await writeFile(secondPath, "second-bytes");
 		const { client, calls } = createClient(async () => ({ id: 123 }));
 
-		const result = await createArtifactUploader(client)("shots", [
-			{ name: "first-renamed.png", path: firstPath },
-			{ name: "second-renamed.png", path: secondPath },
-		]);
+		const result = await withSourceFiles({ "a.png": "first-bytes", "b.png": "second-bytes" }, (source) =>
+			createArtifactUploader(client)("shots", [
+				{ name: "first-renamed.png", path: join(source, "a.png") },
+				{ name: "second-renamed.png", path: join(source, "b.png") },
+			]),
+		);
 
-		await rm(source, { recursive: true, force: true });
 		const root = calls[0]?.root ?? "";
 		expect(result).toStrictEqual({ id: 123 });
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.files).toStrictEqual([join(root, "first-renamed.png"), join(root, "second-renamed.png")]);
 		expect(basename(root).startsWith("playwright-screenshots-")).toBe(true);
 		expect(existsSync(root)).toBe(false);
-	});
-});
-
-describe("artifact upload failure diagnostics", () => {
-	const saved = { token: process.env.ACTIONS_RUNTIME_TOKEN, url: process.env.ACTIONS_RESULTS_URL };
-
-	afterEach(() => {
-		for (const [key, value] of [
-			["ACTIONS_RUNTIME_TOKEN", saved.token],
-			["ACTIONS_RESULTS_URL", saved.url],
-		] as const) {
-			if (value === undefined) {
-				delete process.env[key];
-			} else {
-				process.env[key] = value;
-			}
-		}
-	});
-
-	test("warns exactly once from the reporter when not running in a GitHub Actions environment", async () => {
-		delete process.env.ACTIONS_RUNTIME_TOKEN;
-		delete process.env.ACTIONS_RESULTS_URL;
-		const core = new FakeCore();
-		const upload = createArtifactUploader();
-		core.uploadArtifact = (name, files) => upload(name, files);
-		const reporter = new GitHubReporter(core, { screenshots: true });
-		const testCase = createStubTestCase({
-			results: [
-				createStubTestResult({
-					status: "failed",
-					errors: [createStubTestError()],
-					attachments: [createStubAttachment()],
-				}),
-			],
-		});
-
-		reporter.onBegin(createStubConfig(), createStubSuite({ allTests: () => [testCase] }));
-		reporter.onTestEnd(testCase, testCase.results[0] as TestResult);
-		await reporter.onEnd(createStubFullResult());
-		const summary = core.summary.stringify();
-
-		expect(core.warningAnnotations).toHaveLength(1);
-		expect(core.warningAnnotations[0]?.message).toContain("Actions runtime variables");
-		expect(core.isFailed).toBe(false);
-		expect(summary).not.toContain("Screenshots</a>");
-		expect(summary).not.toContain("undefined");
 	});
 });

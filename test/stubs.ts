@@ -204,3 +204,13 @@ export function createStubFullResult(overrides: Partial<FullResult> = {}): FullR
 		...overrides,
 	};
 }
+
+export function createStubFailingTestCase(
+	testOverrides: Partial<TestCase> = {},
+	resultOverrides: Partial<TestResult> = {},
+): TestCase {
+	return createStubTestCase({
+		...testOverrides,
+		results: [createStubTestResult({ status: "failed", errors: [createStubTestError()], ...resultOverrides })],
+	});
+}
