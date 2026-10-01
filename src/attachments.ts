@@ -36,16 +36,16 @@ export const artifactUrl = (id: number): string | undefined => {
 	return `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${id}`;
 };
 
-const attachmentPaths = (test: TestCase, type: string): string[] =>
+const attachmentPaths = (test: TestCase, kind: AttachmentKind): string[] =>
 	(lastResult(test)?.attachments ?? []).flatMap(({ contentType, path }) =>
-		contentType === type && path !== undefined ? [path] : [],
+		contentType === kind.contentType && path !== undefined ? [path] : [],
 	);
 
-export const attachmentFiles = (tests: TestCase[], { contentType, extension }: AttachmentKind): ArtifactFile[] =>
+export const attachmentFiles = (tests: TestCase[], kind: AttachmentKind): ArtifactFile[] =>
 	// Titles can repeat and contain path separators, so the opaque, unique test id names the file instead.
 	tests.flatMap((test) => {
-		const paths = attachmentPaths(test, contentType);
+		const paths = attachmentPaths(test, kind);
 		// A lone attachment keeps the plain name; only several need an index to stay unique.
 		const suffix = (index: number) => (paths.length === 1 ? "" : `-${index}`);
-		return paths.map((path, index) => ({ name: `${test.id}${suffix(index)}.${extension}`, path }));
+		return paths.map((path, index) => ({ name: `${test.id}${suffix(index)}.${kind.extension}`, path }));
 	});

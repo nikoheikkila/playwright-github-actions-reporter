@@ -49,17 +49,35 @@ async function cleanupStagingDir(stagingDir: string | undefined): Promise<void> 
 	}
 }
 
-async function performUpload(
-	client: DefaultArtifactClient,
-	name: string,
-	filePaths: string[],
-	rootDirectory: string,
-): Promise<{ id: number }> {
-	const response = await client.uploadArtifact(name, filePaths, rootDirectory);
+interface Upload {
+	filePaths: string[];
+	rootDirectory: string;
+	stagingDir?: string;
+}
+
+// Renamed files are copied under their artifact names, as the upload client keeps the original basenames
+async function prepareUpload(files: ArtifactFile[]): Promise<Upload> {
+	const filePaths = files.map((f) => f.path);
+	const rootDirectory = filePaths.length === 0 ? process.cwd() : commonAncestorPath(filePaths);
+	const hasCustomNames = files.some((f) => f.name !== basename(f.path));
+	if (!(hasCustomNames && (await filesExist(files)))) {
+		return { filePaths, rootDirectory };
+	}
+	const stagingDir = await mkdtemp(join(tmpdir(), "playwright-screenshots-"));
+	try {
+		return { filePaths: await stageFilesWithNames(files, stagingDir), rootDirectory: stagingDir, stagingDir };
+	} catch (error) {
+		await cleanupStagingDir(stagingDir);
+		throw error;
+	}
+}
+
+async function performUpload(client: DefaultArtifactClient, name: string, upload: Upload): Promise<{ id: number }> {
+	const response = await client.uploadArtifact(name, upload.filePaths, upload.rootDirectory);
 	if (response.id === undefined) {
 		throw new Error("Artifact upload returned no ID");
 	}
-	coreModule.info(`Uploaded ${name} artifact: ID ${response.id}, ${filePaths.length} file(s)`);
+	coreModule.info(`Uploaded ${name} artifact: ID ${response.id}, ${upload.filePaths.length} file(s)`);
 	return { id: response.id };
 }
 
@@ -77,21 +95,11 @@ export function createArtifactUploader(
 
 		await assertRegularFiles(files);
 
-		let stagingDir: string | undefined;
+		const upload = await prepareUpload(files);
 		try {
-			let filePaths = files.map((f) => f.path);
-			let rootDirectory = filePaths.length === 0 ? process.cwd() : commonAncestorPath(filePaths);
-
-			const hasCustomNames = files.some((f) => f.name !== basename(f.path));
-			if (hasCustomNames && (await filesExist(files))) {
-				stagingDir = await mkdtemp(join(tmpdir(), "playwright-screenshots-"));
-				filePaths = await stageFilesWithNames(files, stagingDir);
-				rootDirectory = stagingDir;
-			}
-
-			return await performUpload(client, name, filePaths, rootDirectory);
+			return await performUpload(client, name, upload);
 		} finally {
-			await cleanupStagingDir(stagingDir);
+			await cleanupStagingDir(upload.stagingDir);
 		}
 	};
 }
