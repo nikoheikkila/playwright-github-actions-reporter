@@ -1,0 +1,29 @@
+{
+	"hooks": {
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "out=$(task lint 2>&1) || { echo \"$out\" >&2; exit 2; }",
+						"timeout": 120,
+						"statusMessage": "Linting..."
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "if [ \"$(jq -r '.stop_hook_active // false')\" = \"true\" ]; then exit 0; fi; out=$(task test:all 2>&1) || { echo \"$out\" >&2; exit 2; }",
+						"timeout": 300,
+						"statusMessage": "Running tests..."
+					}
+				]
+			}
+		]
+	}
+}
