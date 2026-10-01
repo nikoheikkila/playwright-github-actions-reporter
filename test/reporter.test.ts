@@ -920,7 +920,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		const titlePath = ["Tests", "example.spec.ts", "example test"];
 		const location = { file: "/path/to/example.spec.ts", line: 3, column: 7 };
 
-		const annotated: Omit<Partial<TestCase>, "results"> = {
+		const annotated: Partial<TestCase> = {
 			location,
 			titlePath(): string[] {
 				return titlePath;
@@ -1169,7 +1169,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 	describe("Failure details", () => {
 		const failuresHeading = "<h3>Failures</h3>";
 
-		const inSpec = (title = "example test"): Omit<Partial<TestCase>, "results"> => ({
+		const inSpec = (title = "example test"): Partial<TestCase> => ({
 			titlePath(): string[] {
 				return ["Tests", "example.spec.ts", title];
 			},

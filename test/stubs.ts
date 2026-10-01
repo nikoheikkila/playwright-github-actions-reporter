@@ -206,11 +206,11 @@ export function createStubFullResult(overrides: Partial<FullResult> = {}): FullR
 }
 
 export function createStubFailingTestCase(
-	testOverrides: Omit<Partial<TestCase>, "results"> & { results?: never } = {},
+	testOverrides: Partial<TestCase> = {},
 	resultOverrides: Partial<TestResult> = {},
 ): TestCase {
 	return createStubTestCase({
-		...testOverrides,
 		results: [createStubTestResult({ status: "failed", errors: [createStubTestError()], ...resultOverrides })],
+		...testOverrides,
 	});
 }
