@@ -11,7 +11,7 @@ import { GitHubReporter } from "../src/reporter.ts";
 import { preserveEnv } from "./env.ts";
 import { FakeCore } from "./fakes.ts";
 import { createRunners } from "./harness.ts";
-import { silenceWarnings, withSourceFiles } from "./helpers.ts";
+import { silenceInfo, silenceWarnings, withSourceFiles } from "./helpers.ts";
 import {
 	createStubAttachment,
 	createStubConfig,
@@ -102,6 +102,7 @@ describe("createArtifactUploader", () => {
 	beforeEach(() => {
 		process.env.ACTIONS_RUNTIME_TOKEN = "token";
 		process.env.ACTIONS_RESULTS_URL = "https://results.example";
+		silenceInfo();
 	});
 
 	const createClient = (behaviour: () => Promise<{ id?: number }>) => {

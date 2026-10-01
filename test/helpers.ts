@@ -33,3 +33,8 @@ export async function withSourceFiles<T>(
 export function silenceWarnings(): Mock<typeof coreModule.warning> {
 	return spyOn(coreModule, "warning").mockImplementation(() => undefined);
 }
+
+/** Replaces `core.info` with a spy that does nothing and returns the spy. */
+export function silenceInfo(): Mock<typeof coreModule.info> {
+	return spyOn(coreModule, "info").mockImplementation(() => undefined);
+}
