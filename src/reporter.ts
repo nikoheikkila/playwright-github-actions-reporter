@@ -1,5 +1,4 @@
 import { relative } from "node:path";
-import { stripVTControlCharacters } from "node:util";
 import type {
 	FullConfig,
 	FullResult,
@@ -9,48 +8,16 @@ import type {
 	TestCase,
 	TestError,
 	TestResult,
-	TestStep,
 	WorkerInfo,
 } from "@playwright/test/reporter";
-import type { ErrorMessage } from "./html.ts";
+import type { AttachmentKind } from "./attachments.ts";
+import { artifactUrl, attachmentFiles, attachmentKinds } from "./attachments.ts";
+import type { RecordedError } from "./failure.ts";
+import { errorMessage, errorMessages, errorTitle, failureDetails } from "./failure.ts";
 import { attributeEscape, inlineHtml, preformattedHtml } from "./html.ts";
-import type { AnnotationProperties, ArtifactFile, Core, Summary } from "./interface.ts";
-
-type Status = TestResult["status"];
-type Outcome = ReturnType<TestCase["outcome"]>;
-type CountedOutcome = Outcome | "interrupted";
-
-const statusLabels = {
-	passed: "✅ Passed",
-	failed: "❌ Failed",
-	timedOut: "⏰ Timed out",
-	skipped: "⚠️ Skipped",
-	interrupted: "🛑 Interrupted",
-} as const satisfies Record<Status, string>;
-
-interface StoredResult {
-	titlePath: string;
-	label: string;
-	duration: string;
-	retries: string;
-	tags: string;
-}
-
-type ResultMap = Map<TestCase["id"], StoredResult>;
-
-type Counts = Record<"passed" | "failed" | "flaky" | "skipped" | "interrupted", number>;
-
-interface RecordedError extends ErrorMessage {
-	title: string;
-}
-
-const artifactUrl = (id: number): string | undefined => {
-	const { GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID } = process.env;
-	if (!(GITHUB_SERVER_URL && GITHUB_REPOSITORY && GITHUB_RUN_ID)) {
-		return undefined;
-	}
-	return `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts/${id}`;
-};
+import type { AnnotationProperties, Core, Summary } from "./interface.ts";
+import type { Counts, StoredResult } from "./outcome.ts";
+import { counts, duration, label, outcome, storedResult, titlePath } from "./outcome.ts";
 
 export interface GitHubReporterOptions {
 	omitTags?: boolean;
@@ -59,36 +26,10 @@ export interface GitHubReporterOptions {
 	videos?: boolean;
 }
 
-/** Each kind of failure attachment the reporter can upload as one artifact and link from the Failures section. */
-interface AttachmentKind {
-	option: "screenshots" | "videos";
-	artifact: string;
-	contentType: string;
-	extension: string;
-	label: string;
-}
-
-const attachmentKinds: readonly AttachmentKind[] = [
-	{
-		option: "screenshots",
-		artifact: "playwright-screenshots",
-		contentType: "image/png",
-		extension: "png",
-		label: "Screenshots",
-	},
-	{
-		option: "videos",
-		artifact: "playwright-videos",
-		contentType: "video/webm",
-		extension: "webm",
-		label: "Videos",
-	},
-];
-
 export class GitHubReporter implements Reporter {
 	private readonly core: Core;
 	private readonly options: GitHubReporterOptions;
-	private readonly results: ResultMap;
+	private readonly results = new Map<TestCase["id"], StoredResult>();
 	private readonly summary: Summary;
 	private readonly recordedErrors: RecordedError[] = [];
 
@@ -102,7 +43,6 @@ export class GitHubReporter implements Reporter {
 	constructor(core: Core, options: GitHubReporterOptions = {}) {
 		this.core = core;
 		this.options = options;
-		this.results = new Map();
 		this.summary = core.summary;
 	}
 
@@ -117,21 +57,13 @@ export class GitHubReporter implements Reporter {
 	}
 
 	public onTestBegin(test: TestCase) {
-		this.debug(`Starting test '${this.titlePath(test)}'`);
+		this.debug(`Starting test '${titlePath(test)}'`);
 	}
 
 	public onTestEnd(test: TestCase, result: TestResult): void {
-		const titlePath = this.titlePath(test);
-		const outcome = test.outcome();
-		this.debug(`Finished test '${titlePath}' with result '${result.status}'`);
+		this.debug(`Finished test '${titlePath(test)}' with result '${result.status}'`);
 
-		this.results.set(test.id, {
-			titlePath,
-			label: this.label(outcome, result),
-			duration: this.duration(result),
-			retries: this.retries(result),
-			tags: this.tags(test),
-		});
+		this.results.set(test.id, storedResult(test, result));
 	}
 
 	public printsToStdio(): boolean {
@@ -147,18 +79,18 @@ export class GitHubReporter implements Reporter {
 	}
 
 	public onError(error: TestError, workerInfo?: WorkerInfo): void {
-		this.recordedErrors.push({ title: this.errorTitle(workerInfo), ...this.errorMessage(error, "Unknown error") });
+		this.recordedErrors.push({ title: errorTitle(workerInfo), ...errorMessage(error, "Unknown error") });
 	}
 
 	public async onEnd(result: FullResult): Promise<void> {
-		const counts = this.counts();
-		this.core.notice(`🎭  ${counts.passed} out of ${this.tests.length} test(s) passed (${this.duration(result)})`);
+		const runCounts = counts(this.tests);
+		this.core.notice(`🎭  ${runCounts.passed} out of ${this.tests.length} test(s) passed (${duration(result)})`);
 
 		this.emitAnnotations();
-		this.collectSummaryResults(counts);
+		this.collectSummaryResults(runCounts);
 		this.collectDetailedResults();
 
-		if (counts.failed > 0) {
+		if (runCounts.failed > 0) {
 			// The upload is awaited before the Failures section so one artifact link per attachment kind can be rendered under the heading.
 			await this.uploadAttachments();
 			this.collectFailureDetails();
@@ -206,41 +138,21 @@ export class GitHubReporter implements Reporter {
 	}
 
 	/** Resolves to `undefined` when there is nothing to upload or the upload throws, so a failed upload never hides the Failures section. */
-	private async uploadArtifact({
-		artifact,
-		contentType,
-		extension,
-	}: AttachmentKind): Promise<{ id: number } | undefined> {
-		const files = this.attachmentFiles(this.unexpectedTests(), contentType, extension);
+	private async uploadArtifact(kind: AttachmentKind): Promise<{ id: number } | undefined> {
+		const files = attachmentFiles(this.unexpectedTests(), kind);
 		if (files.length === 0) {
 			return undefined;
 		}
 		try {
-			return await this.core.uploadArtifact(artifact, files);
+			return await this.core.uploadArtifact(kind.artifact, files);
 		} catch (error) {
 			this.core.warning(error instanceof Error ? error.message : String(error));
 			return undefined;
 		}
 	}
 
-	private attachmentFiles(tests: TestCase[], type: string, extension: string): ArtifactFile[] {
-		// Titles can repeat and contain path separators, so the opaque, unique test id names the file instead.
-		return tests.flatMap((test) => {
-			const paths = this.attachmentPaths(test, type);
-			// A lone attachment keeps the plain name; only several need an index to stay unique.
-			const suffix = (index: number) => (paths.length === 1 ? "" : `-${index}`);
-			return paths.map((path, index) => ({ name: `${test.id}${suffix(index)}.${extension}`, path }));
-		});
-	}
-
-	private attachmentPaths(test: TestCase, type: string): string[] {
-		return (test.results.at(-1)?.attachments ?? []).flatMap(({ contentType, path }) =>
-			contentType === type && path !== undefined ? [path] : [],
-		);
-	}
-
 	private unexpectedTests(): TestCase[] {
-		return this.tests.filter((test) => this.outcome(test) === "unexpected");
+		return this.tests.filter((test) => outcome(test) === "unexpected");
 	}
 
 	private heading(shard: FullConfig["shard"]): string {
@@ -253,26 +165,6 @@ export class GitHubReporter implements Reporter {
 		if (this.core.isDebug()) {
 			this.core.debug(message);
 		}
-	}
-
-	private counts(): Counts {
-		const outcomes = this.tests.map((test) => this.outcome(test));
-		const count = (outcome: CountedOutcome) => outcomes.filter((candidate) => candidate === outcome).length;
-
-		return {
-			passed: count("expected"),
-			failed: count("unexpected"),
-			flaky: count("flaky"),
-			skipped: count("skipped"),
-			interrupted: count("interrupted"),
-		};
-	}
-
-	private outcome(test: TestCase): CountedOutcome {
-		const outcome = test.outcome();
-		const interrupted = outcome === "skipped" && test.results.at(-1)?.status === "interrupted";
-
-		return interrupted ? "interrupted" : outcome;
 	}
 
 	private emitAnnotations() {
@@ -290,43 +182,17 @@ export class GitHubReporter implements Reporter {
 	}
 
 	private annotate(test: TestCase, result: TestResult) {
-		const outcome = this.outcome(test);
+		const testOutcome = outcome(test);
 
-		if (outcome === "unexpected") {
-			for (const { message, location } of this.errorMessages(test, result)) {
-				this.core.error(message, this.annotation(this.titlePath(test), location ?? test.location));
+		if (testOutcome === "unexpected") {
+			for (const { message, location } of errorMessages(test, result)) {
+				this.core.error(message, this.annotation(titlePath(test), location ?? test.location));
 			}
 		}
 
-		if (outcome === "flaky") {
-			this.core.warning(this.label(outcome, result), this.annotation(this.titlePath(test), test.location));
+		if (testOutcome === "flaky") {
+			this.core.warning(label(testOutcome, result), this.annotation(titlePath(test), test.location));
 		}
-	}
-
-	private errorMessages(test: TestCase, result: TestResult): ErrorMessage[] {
-		const errors: TestError[] = result.errors.length > 0 ? result.errors : [{}];
-
-		return errors.map((error) => this.errorMessage(error, this.unexpectedStatus(test, result)));
-	}
-
-	private errorMessage({ message, value, snippet, location }: TestError, fallback: string): ErrorMessage {
-		return {
-			message: stripVTControlCharacters(message ?? value ?? fallback),
-			...(snippet === undefined ? {} : { snippet: stripVTControlCharacters(snippet) }),
-			location,
-		};
-	}
-
-	private errorTitle(workerInfo?: WorkerInfo): string {
-		const project = workerInfo?.project.name ?? "";
-
-		return project.length > 0 ? `Error outside tests (${project})` : "Error outside tests";
-	}
-
-	private unexpectedStatus({ expectedStatus }: TestCase, { status }: TestResult): string {
-		return status === "passed" && expectedStatus === "failed"
-			? "Expected to fail, but passed."
-			: `Unexpected status: ${status}`;
 	}
 
 	private annotation(title: string, location?: Location): AnnotationProperties {
@@ -369,27 +235,17 @@ export class GitHubReporter implements Reporter {
 	private collectFailureDetails() {
 		this.summary.addHeading("Failures", 3);
 
-		this.addArtifactLinks();
+		for (const [label, url] of this.artifactLinks) {
+			this.summary.addLink(label, attributeEscape(url));
+		}
 
 		for (const test of this.unexpectedTests()) {
 			const result = test.results.at(-1);
 
 			if (result !== undefined) {
-				this.summary.addDetails(`❌ ${inlineHtml(this.titlePath(test))}`, this.failureDetails(test, result));
+				this.summary.addDetails(`❌ ${inlineHtml(titlePath(test))}`, failureDetails(test, result));
 			}
 		}
-	}
-
-	private addArtifactLinks() {
-		for (const [label, url] of this.artifactLinks) {
-			this.summary.addLink(label, attributeEscape(url));
-		}
-	}
-
-	private failureDetails(test: TestCase, result: TestResult): string {
-		const blocks = this.errorMessages(test, result).map(preformattedHtml).join("");
-
-		return `<div>${this.renderFailingStep(result)}${blocks}</div>`;
 	}
 
 	private collectErrorDetails() {
@@ -398,46 +254,6 @@ export class GitHubReporter implements Reporter {
 		for (const error of this.recordedErrors) {
 			this.summary.addDetails(inlineHtml(error.title), preformattedHtml(error));
 		}
-	}
-
-	private renderFailingStep({ steps }: TestResult): string {
-		const chain = this.failingSteps(steps);
-
-		return chain.length > 0 ? `<p><strong>Step:</strong> <code>${inlineHtml(chain.join(" » "))}</code></p>` : "";
-	}
-
-	private failingSteps(steps: TestStep[]): string[] {
-		const step = steps.find(({ error }) => error !== undefined);
-
-		return step === undefined ? [] : [this.stepTitle(step), ...this.failingSteps(step.steps)];
-	}
-
-	private stepTitle({ title, subtitle }: TestStep): string {
-		return subtitle === undefined ? title : `${title} (${subtitle})`;
-	}
-
-	private titlePath(test: TestCase) {
-		return test.titlePath().filter(Boolean).join(" » ");
-	}
-
-	private label(outcome: Outcome, { status, retry }: TestResult): string {
-		if (outcome === "flaky") {
-			return `🔁 Flaky (${retry + 1} attempts)`;
-		}
-
-		return outcome === "expected" && status === "failed" ? "✅ Failed as expected" : statusLabels[status];
-	}
-
-	private duration(result: TestResult | FullResult): string {
-		return `${(result.duration / 1000).toFixed(1)}s`;
-	}
-
-	private retries(result: TestResult): string {
-		return result.retry === 0 ? "None" : result.retry.toString();
-	}
-
-	private tags(testCase: TestCase) {
-		return testCase.tags.length > 0 ? testCase.tags.join(", ") : "None";
 	}
 
 	private withTags<Cell>(cells: Cell[], tags: Cell): Cell[] {

@@ -12,9 +12,12 @@ This project is a custom Playwright reporter that renders the run as a GitHub Ac
 - `index.ts` — default-exported `Reporter` that wires the real `@actions/core` into `GitHubReporter` for production use.
 - `src/reporter.ts` — `GitHubReporter` class implementing Reporter interface, plus the exported `GitHubReporterOptions` (`omitTags`, `title`) that `index.ts` re-exports.
 - `src/html.ts` — the escaping helpers `escapeHtml`, `inlineHtml`, `preformattedHtml` and `attributeEscape`.
+- `src/outcome.ts` — `outcome` / `counts` (every test in exactly one bucket), status labels, titles, durations and the precomputed per-test row values (`storedResult`).
+- `src/failure.ts` — error message extraction with fallbacks, error titles, the failing-step chain and the failure details HTML.
+- `src/attachments.ts` — attachment kinds (screenshots, videos), the artifact URL and the file naming for the uploads.
 - `src/artifact.ts` — `createArtifactUploader`, the production `core.uploadArtifact`: checks the runtime variables, file names and file types, stages renamed files in a temp directory and uploads them with `@actions/artifact` (used for both screenshots and videos). `src/filenames.ts` holds the file name and path helpers it uses.
 - `src/interface.ts` — minimal `Core` / `Summary` / `SummaryTableRow` / `AnnotationProperties` types mirroring the subset of `@actions/core` we use. Production code depends on these abstractions, not on `@actions/core` directly, so tests can substitute fakes.
-- `test/` — `bun:test` unit tests with `FakeCore` / `FakeSummary` (`test/fakes.ts`) and `createStubX` factories for Playwright fixtures (`test/stubs.ts`). Suites are split by topic: `reporter.test.ts` (Full Report Snapshot only), `summary.test.ts`, `details.test.ts` (Test details), `annotations.test.ts`, `failures.test.ts` (Failure details and Errors outside tests), `attachments.test.ts` (Screenshots etc.) and `artifact.test.ts`. `test/harness.ts` holds the shared `runTests` / `runTestCases` / `count`, next to `test/helpers.ts` and `test/env.ts`.
+- `test/` — `bun:test` unit tests with `FakeCore` / `FakeSummary` (`test/fakes.ts`) and `createStubX` factories for Playwright fixtures (`test/stubs.ts`). Suites are split by topic: `reporter.test.ts` (Full Report Snapshot only), `summary.test.ts`, `summary-counts.test.ts` (counts and buckets), `summary-flaky.test.ts` (flaky tests failing the run), `options.test.ts` (reporter options), `logging.test.ts` (logs, notice, stdout/stderr, setFailed), `details.test.ts` and `details-rendering.test.ts` (Test details: HTML characters, duration, retries, tags), `annotations.test.ts`, `failures.test.ts` (Failure details), `errors.test.ts` (Errors outside tests), `attachments.test.ts` and `attachments-filtering.test.ts` (Screenshots and videos) and `artifact.test.ts`. `test/harness.ts` holds the shared `count` and `createRunners`, next to `test/helpers.ts` and `test/env.ts`.
 - `e2e/` — Playwright suite (`example.spec.ts`) that intentionally contains passing / expected-failure / timing-out / flaky / failing-step / skipped tests; the rendered summary is diffed against `e2e/snapshots/summary.md`.
 - `scripts/diffPlaywrightTypes.ts` — diffs the reporter-facing Playwright type definitions against another version (`task playwright:diff`).
 
@@ -96,6 +99,7 @@ For deeper detail, read `node_modules/bun-types/docs/**.mdx`.
 Biome (`biome.json`) is strict and enforced via `task lint` and the lint-staged pre-commit hook. Don't disable rules to silence an error — fix the code.
 
 - Formatting: tabs, double quotes, trailing commas, semicolons, line width 120.
+- File size: keep source and test modules under 300 lines where possible. When a file grows past that, split it by responsibility (as `src/html.ts` was extracted from `src/reporter.ts`, and the tests were split by topic). Don't make a file larger, and split one when you are already changing it.
 - TypeScript (`tsconfig.json`) is strict with `noUncheckedIndexedAccess` and `verbatimModuleSyntax`. Internal imports must include the `.ts` extension (e.g. `from "./reporter.ts"`) — required by `allowImportingTsExtensions`.
 - Use `import type` / `export type` for type-only symbols (`useImportType`, `useExportType`).
 - No `any` (`noExplicitAny`), no non-null assertions (`noNonNullAssertion`), no implicit-boolean coercion in conditionals (`noImplicitBoolean` — use explicit `> 0`, `!== undefined`, or `!!x` as in `playwright.config.ts`).
@@ -118,8 +122,8 @@ Biome (`biome.json`) is strict and enforced via `task lint` and the lint-staged 
 
 Almost every change to `src/reporter.ts` touches the same set of files. Load all of them up front, including when you hand work to a subagent:
 
-- `src/reporter.ts`, `src/html.ts` (if escaping changes), `src/interface.ts` (if the `Core`/`Summary` surface changes), `index.ts` (if constructor or exports change)
-- the test files for the area you change (`test/reporter.test.ts`, `summary.test.ts`, `details.test.ts`, `annotations.test.ts`, `failures.test.ts`, `attachments.test.ts`, `artifact.test.ts`), plus `test/harness.ts`, `test/helpers.ts`, `test/env.ts`, `test/fakes.ts`, `test/stubs.ts`
+- `src/reporter.ts`, `src/html.ts` (if escaping changes), `src/outcome.ts` / `src/failure.ts` / `src/attachments.ts` (if counts, failure details or attachments change), `src/interface.ts` (if the `Core`/`Summary` surface changes), `index.ts` (if constructor or exports change)
+- the test files for the area you change (`test/reporter.test.ts`, `summary.test.ts`, `summary-counts.test.ts`, `summary-flaky.test.ts`, `options.test.ts`, `logging.test.ts`, `details.test.ts`, `details-rendering.test.ts`, `annotations.test.ts`, `failures.test.ts`, `errors.test.ts`, `attachments.test.ts`, `attachments-filtering.test.ts`, `artifact.test.ts`), plus `test/harness.ts`, `test/helpers.ts`, `test/env.ts`, `test/fakes.ts`, `test/stubs.ts`
 - `test/__snapshots__/reporter.test.ts.snap` and `e2e/snapshots/summary.md`: any rendering change moves one or both
 - `e2e/example.spec.ts` when the change needs a real Playwright scenario
 - `README.md` (Overview / Features / options) and the "Reporter lifecycle" section above when behaviour changes
