@@ -1913,6 +1913,59 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(beforeFirstDetails).toContain(link);
 			expect(summary.split(link)).toHaveLength(2);
 		});
+		test("uploads webm videos of failing tests and links the artifact once in the Failures section", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			reporter = new GitHubReporter(core, { videos: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					id: "a1",
+					title: "fails with a video",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [
+								createStubAttachment({ name: "video", path: "/tmp/a1/video.webm", contentType: "video/webm" }),
+							],
+						}),
+					],
+				}),
+			);
+
+			expect(core.uploadedArtifacts.map(({ name }) => name)).toStrictEqual(["playwright-videos"]);
+			expect(core.uploadedArtifacts[0]?.files.map(({ name }) => name)).toStrictEqual(["a1.webm"]);
+			const link = '<a href="https://github.com/owner/repo/actions/runs/999/artifacts/42">Videos</a>';
+			const failures = summary.slice(summary.indexOf("<h3>Failures</h3>"));
+			expect(failures.slice(0, failures.indexOf("<details>"))).toContain(link);
+			expect(summary.split(link)).toHaveLength(2);
+		});
+
+		test("gives several videos of one failing test unique file names", async () => {
+			reporter = new GitHubReporter(core, { videos: true });
+
+			await runTestCases(
+				createStubTestCase({
+					id: "a1",
+					title: "fails with two videos",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [
+								createStubAttachment({ name: "video", path: "/tmp/a1/one.webm", contentType: "video/webm" }),
+								createStubAttachment({ name: "video", path: "/tmp/a1/two.webm", contentType: "video/webm" }),
+							],
+						}),
+					],
+				}),
+			);
+
+			expect(core.uploadedArtifacts[0]?.files.map(({ name }) => name)).toStrictEqual(["a1-0.webm", "a1-1.webm"]);
+		});
+
 		test("emits warning and renders no link when uploadArtifact returns no id", async () => {
 			process.env.GITHUB_RUN_ID = "999";
 			process.env.GITHUB_REPOSITORY = "owner/repo";
@@ -1997,6 +2050,70 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(summary).not.toContain("Screenshots</a>");
 			expect(core.warningAnnotations).toHaveLength(1);
 			expect(core.warningAnnotations[0]?.message).toContain("Upload failed: network error");
+		});
+
+		test("continues rendering failures and warns once when the video upload throws", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			core.setUploadArtifactThrow(new Error("Upload failed: network error"));
+			reporter = new GitHubReporter(core, { videos: true });
+
+			const run = runTestCases(
+				createStubTestCase({
+					id: "a1",
+					title: "fails with a video",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [
+								createStubAttachment({ name: "video", path: "/tmp/a1/video.webm", contentType: "video/webm" }),
+							],
+						}),
+					],
+				}),
+			);
+
+			await expect(run).resolves.toBeDefined();
+			const { summary } = await run;
+
+			expect(summary).toContain("<h3>Failures</h3>");
+			expect(summary).toContain("Error message");
+			expect(summary).not.toContain("Videos</a>");
+			expect(core.warningAnnotations).toHaveLength(1);
+			expect(core.warningAnnotations[0]?.message).toContain("Upload failed: network error");
+			expect(core.errors).toStrictEqual(["Error message"]);
+		});
+
+		test("emits one warning and renders no videos link when uploadArtifact returns no id", async () => {
+			process.env.GITHUB_RUN_ID = "999";
+			process.env.GITHUB_REPOSITORY = "owner/repo";
+			process.env.GITHUB_SERVER_URL = "https://github.com";
+			core.setUploadArtifactFail();
+			reporter = new GitHubReporter(core, { videos: true });
+
+			const { summary } = await runTestCases(
+				createStubTestCase({
+					id: "a1",
+					title: "fails with a video",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [
+								createStubAttachment({ name: "video", path: "/tmp/a1/video.webm", contentType: "video/webm" }),
+							],
+						}),
+					],
+				}),
+			);
+
+			expect(summary).not.toContain("Videos</a>");
+			expect(summary).toContain("<h3>Failures</h3>");
+			expect(core.warningAnnotations).toHaveLength(1);
+			expect(core.warningAnnotations[0]?.message).toContain("video");
+			expect(core.errors).toStrictEqual(["Error message"]);
 		});
 
 		test.each([

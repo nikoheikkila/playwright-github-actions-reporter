@@ -74,7 +74,37 @@ export interface GitHubReporterOptions {
 	omitTags?: boolean;
 	title?: string;
 	screenshots?: boolean;
+	videos?: boolean;
 }
+
+/** Each kind of failure attachment the reporter can upload as one artifact and link from the Failures section. */
+interface AttachmentKind {
+	option: "screenshots" | "videos";
+	artifact: string;
+	contentType: string;
+	extension: string;
+	noun: string;
+	label: string;
+}
+
+const attachmentKinds: readonly AttachmentKind[] = [
+	{
+		option: "screenshots",
+		artifact: "playwright-screenshots",
+		contentType: "image/png",
+		extension: "png",
+		noun: "Screenshot",
+		label: "Screenshots",
+	},
+	{
+		option: "videos",
+		artifact: "playwright-videos",
+		contentType: "video/webm",
+		extension: "webm",
+		noun: "Video",
+		label: "Videos",
+	},
+];
 
 export class GitHubReporter implements Reporter {
 	private readonly core: Core;
@@ -87,7 +117,8 @@ export class GitHubReporter implements Reporter {
 	private tests: TestCase[] = [];
 	private failOnFlakyTests = false;
 	private workspace = "";
-	private screenshotsUrl: string | undefined;
+	/** Artifact URLs keyed by link label, in upload order. */
+	private readonly artifactLinks = new Map<string, string>();
 
 	constructor(core: Core, options: GitHubReporterOptions = {}) {
 		this.core = core;
@@ -149,8 +180,8 @@ export class GitHubReporter implements Reporter {
 		this.collectDetailedResults();
 
 		if (counts.failed > 0) {
-			// The upload is awaited before the Failures section so the single artifact link can be rendered under the heading.
-			await this.uploadScreenshots();
+			// The upload is awaited before the Failures section so one artifact link per attachment kind can be rendered under the heading.
+			await this.uploadAttachments();
 			this.collectFailureDetails();
 		}
 
@@ -173,47 +204,63 @@ export class GitHubReporter implements Reporter {
 		}
 	}
 
-	private async uploadScreenshots(): Promise<void> {
-		const files = this.options.screenshots ? this.screenshotFiles(this.unexpectedTests()) : [];
-		if (files.length === 0) {
-			return;
-		}
-		const id = await this.uploadedArtifactId(files);
-		if (id === undefined) {
-			return;
-		}
-		this.screenshotsUrl = artifactUrl(id);
-		if (this.screenshotsUrl === undefined) {
-			this.core.warning("GitHub run environment is missing, so the summary does not link to screenshots.");
+	private async uploadAttachments(): Promise<void> {
+		for (const kind of attachmentKinds.filter(({ option }) => this.options[option] === true)) {
+			const url = await this.uploadArtifactLink(kind);
+			if (url !== undefined) {
+				this.artifactLinks.set(kind.label, url);
+			}
 		}
 	}
 
-	private async uploadedArtifactId(files: ArtifactFile[]): Promise<number | undefined> {
+	private async uploadArtifactLink(kind: AttachmentKind): Promise<string | undefined> {
+		const artifact = await this.uploadArtifact(kind);
+		if (artifact === undefined) {
+			return undefined;
+		}
+		const plural = kind.label.toLowerCase();
+		if (artifact.id === undefined) {
+			this.core.warning(`${kind.noun} artifact upload returned no ID, so the summary does not link to ${plural}.`);
+			return undefined;
+		}
+		const url = artifactUrl(artifact.id);
+		if (url === undefined) {
+			this.core.warning(`GitHub run environment is missing, so the summary does not link to ${plural}.`);
+		}
+		return url;
+	}
+
+	/** Resolves to `undefined` when there is nothing to upload or the upload throws, so a failed upload never hides the Failures section. */
+	private async uploadArtifact({
+		artifact,
+		contentType,
+		extension,
+	}: AttachmentKind): Promise<{ id?: number } | undefined> {
+		const files = this.attachmentFiles(this.unexpectedTests(), contentType, extension);
+		if (files.length === 0) {
+			return undefined;
+		}
 		try {
-			const { id } = await this.core.uploadArtifact("playwright-screenshots", files);
-			if (id === undefined) {
-				this.core.warning("Screenshot artifact upload returned no ID, so the summary does not link to screenshots.");
-			}
-			return id;
+			return await this.core.uploadArtifact(artifact, files);
 		} catch (error) {
 			this.core.warning(error instanceof Error ? error.message : String(error));
 			return undefined;
 		}
 	}
 
-	private screenshotFiles(tests: TestCase[]): ArtifactFile[] {
+	private attachmentFiles(tests: TestCase[], type: string, extension: string): ArtifactFile[] {
 		// Titles can repeat and contain path separators, so the opaque, unique test id names the file instead.
 		return tests.flatMap((test) => {
-			const paths = this.screenshotPaths(test);
-			// A lone screenshot keeps the plain name; only several need an index to stay unique.
+			const paths = this.attachmentPaths(test, type);
+			// A lone attachment keeps the plain name; only several need an index to stay unique.
 			const suffix = (index: number) => (paths.length === 1 ? "" : `-${index}`);
-			return paths.map((path, index) => ({ name: `${test.id}${suffix(index)}.png`, path }));
+			return paths.map((path, index) => ({ name: `${test.id}${suffix(index)}.${extension}`, path }));
 		});
 	}
 
-	private screenshotPaths(test: TestCase): string[] {
+	private attachmentPaths(test: TestCase, type: string): string[] {
 		return (test.results.at(-1)?.attachments ?? []).flatMap(({ contentType, path }) =>
-			contentType === "image/png" && path !== undefined ? [path] : [],
+			contentType === type && path !== undefined ? [path] : [],
 		);
 	}
 
@@ -347,7 +394,7 @@ export class GitHubReporter implements Reporter {
 	private collectFailureDetails() {
 		this.summary.addHeading("Failures", 3);
 
-		this.addScreenshotsLink();
+		this.addArtifactLinks();
 
 		for (const test of this.unexpectedTests()) {
 			const result = test.results.at(-1);
@@ -358,9 +405,9 @@ export class GitHubReporter implements Reporter {
 		}
 	}
 
-	private addScreenshotsLink() {
-		if (this.screenshotsUrl !== undefined) {
-			this.summary.addLink("Screenshots", attributeEscape(this.screenshotsUrl));
+	private addArtifactLinks() {
+		for (const [label, url] of this.artifactLinks) {
+			this.summary.addLink(label, attributeEscape(url));
 		}
 	}
 

@@ -60,15 +60,17 @@ jobs:
           ACTIONS_RUNTIME_TOKEN: ${{ steps.github-env.outputs.token }}
           ACTIONS_RESULTS_URL: ${{ steps.github-env.outputs.results_url }}
 
-      - name: Verify screenshot artifact was uploaded
+      - name: Verify screenshot and video artifacts were uploaded
         timeout-minutes: 2
         run: |
-          found=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
-            --jq '[.artifacts[] | select(.name == "playwright-screenshots")] | length')
-          if [ "$found" -ne 1 ]; then
-            echo "::error::Expected exactly one playwright-screenshots artifact, found $found"
-            exit 1
-          fi
+          for name in playwright-screenshots playwright-videos; do
+            found=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+              --jq "[.artifacts[] | select(.name == \"$name\")] | length")
+            if [ "$found" -ne 1 ]; then
+              echo "::error::Expected exactly one $name artifact, found $found"
+              exit 1
+            fi
+          done
         env:
           GH_TOKEN: ${{ github.token }}
 

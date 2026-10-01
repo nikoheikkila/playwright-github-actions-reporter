@@ -9,6 +9,7 @@ export default defineConfig({
 	retries: 1,
 	use: {
 		screenshot: "only-on-failure",
+		video: "retain-on-failure",
 	},
-	reporter: [["./index.ts", { screenshots: isPipeline }]],
+	reporter: [["./index.ts", { screenshots: isPipeline, videos: isPipeline }]],
 });

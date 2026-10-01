@@ -65,6 +65,7 @@ Errors raised outside any test, such as a failing worker fixture teardown, get t
 - Marks the workflow step as failed when the run fails, so a broken build never passes silently
 - Escapes all test-controlled text, so titles or messages containing HTML can't break the summary layout
 - Uploads failed test screenshots as an artifact when enabled (requires GitHub Actions runtime)
+- Uploads failed test videos as a separate artifact when enabled (requires GitHub Actions runtime)
 - Zero configuration: works out of the box on any GitHub Actions runner, with [options](#reporter-options) when you need them
 
 ## Requirements
@@ -151,6 +152,7 @@ export default defineConfig({
 | `omitTags`   | `boolean` | When `true`, hides the Tags column from the results table. Defaults to `false`. Matches Playwright's built-in `omitTags` option in 1.63+. |
 | `title`      | `string`  | Custom heading for the report, replacing "🎭 Playwright Test Report". Defaults to the standard heading.                                      |
 | `screenshots` | `boolean` | When `true`, uploads the screenshots of failed tests as a GitHub Actions artifact and links to it in the report. The upload needs the Actions runtime variables `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_RESULTS_URL`. GitHub exposes these only to actions (`uses:` steps), not to `run:` steps, so you have to pass them to the Playwright step yourself. See [Setting up screenshot uploads](#setting-up-screenshot-uploads). If they're missing, the reporter skips the upload and logs a warning. Defaults to `false`. |
+| `videos` | `boolean` | When `true`, uploads the `video/webm` attachments of failed tests as the `playwright-videos` GitHub Actions artifact and links to it once, as "Videos", under Failures next to the "Screenshots" link. It needs the same Actions runtime variables as `screenshots` (see [Setting up screenshot uploads](#setting-up-screenshot-uploads)); if they are missing, the reporter skips the upload and logs a warning. Defaults to `false`. |
 
 When running sharded tests (configured with `shard` in `playwright.config.ts`), the report automatically appends " (shard x/y)" to the heading, so parallel jobs can be distinguished in the summary.
 
@@ -199,6 +201,8 @@ reporter: [["@nikoheikkila/playwright-github-actions-reporter", { screenshots: t
 ```
 
 Playwright captures screenshots only when you enable them, for example with `use: { screenshot: "only-on-failure" }`.
+
+The `videos` option uses the same setup. Turn it on with `{ screenshots: true, videos: true }`. Playwright records video only when you enable it, for example with `use: { video: "retain-on-failure" }`.
 
 ## Development
 
