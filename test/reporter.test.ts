@@ -71,11 +71,8 @@ describe("Playwright GitHub Actions Reporter", () => {
 			}
 		}
 
-		try {
-			await reporter.onEnd(fullResult ?? createStubFullResult());
-		} finally {
-			await reporter.onExit();
-		}
+		await reporter.onEnd(fullResult ?? createStubFullResult());
+		await reporter.onExit();
 
 		return {
 			summary: core.summary.stringify(),
@@ -1385,13 +1382,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		const errorsFailure = "Errors outside tests detected. See the job summary for details.";
 
 		const finishRun = async (...testCases: TestCase[]) => {
-			try {
-				await runTestCases(...testCases);
-			} catch (error: unknown) {
-				if (!(error instanceof Error && error.message === errorsFailure)) {
-					throw error;
-				}
-			}
+			await runTestCases(...testCases);
 
 			return { summary: core.summary.stringify() };
 		};
@@ -1524,7 +1515,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			await finishRun();
 
-			expect(core.errors).toContain(errorsFailure);
+			expect(core.failures).toContain(errorsFailure);
 		});
 
 		test("HTML-escapes error title with project name", async () => {
@@ -1560,17 +1551,13 @@ describe("Playwright GitHub Actions Reporter", () => {
 			const testRunFailure = "Test run failed. See the job summary for detailed information.";
 			reporter.onError(createStubTestError());
 
-			await expect(
-				runTests({
-					config: createStubConfig(),
-					suite: createStubSuite(),
-					fullResult: createStubFullResult({ status: "failed" }),
-				}),
-			).rejects.toThrow(testRunFailure);
+			await runTests({
+				config: createStubConfig(),
+				suite: createStubSuite(),
+				fullResult: createStubFullResult({ status: "failed" }),
+			});
 
-			expect(core.errors.filter((message) => message === testRunFailure || message === errorsFailure)).toEqual([
-				testRunFailure,
-			]);
+			expect(core.failures).toEqual([testRunFailure]);
 		});
 
 		test("normalises \\r\\n and \\r to \\n in error message", async () => {
@@ -1793,33 +1780,18 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("marks the workflow job as failed when the test suite fails", async () => {
-			expect.assertions(2);
+			await runTests({
+				config: createStubConfig(),
+				suite: createStubSuite({
+					allTests(): TestCase[] {
+						return [createStubTestCase({ results: [createStubTestResult({ status: "failed" })] })];
+					},
+				}),
+				fullResult: createStubFullResult({ status: "failed" }),
+			});
 
-			try {
-				await runTests({
-					config: createStubConfig(),
-					suite: createStubSuite({
-						allTests(): TestCase[] {
-							return [
-								createStubTestCase({
-									results: [
-										createStubTestResult({
-											status: "failed",
-										}),
-									],
-								}),
-							];
-						},
-					}),
-					fullResult: createStubFullResult({
-						status: "failed",
-					}),
-				});
-			} catch (error: unknown) {
-				const message = "Test run failed. See the job summary for detailed information.";
-				expect(core.errors).toContain(message);
-				expect((error as Error).message).toBe(message);
-			}
+			expect(core.failures).toContain("Test run failed. See the job summary for detailed information.");
+			expect(core.isFailed).toBe(true);
 		});
 	});
 	describe("Screenshots", () => {

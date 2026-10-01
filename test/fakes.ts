@@ -1,5 +1,5 @@
 import * as os from "node:os";
-import type { AnnotationProperties, Core, Summary, SummaryTableRow } from "../src/interface.ts";
+import type { AnnotationProperties, ArtifactFile, Core, Summary, SummaryTableRow } from "../src/interface.ts";
 
 interface Annotation {
 	message: string;
@@ -92,7 +92,8 @@ export class FakeCore implements Core {
 	public readonly errorAnnotations: Annotation[] = [];
 	public readonly warningAnnotations: Annotation[] = [];
 	public readonly noticeAnnotations: Annotation[] = [];
-	public readonly uploadedArtifacts: Array<{ name: string; files: Array<{ name: string; path: string }> }> = [];
+	public readonly uploadedArtifacts: Array<{ name: string; files: ArtifactFile[] }> = [];
+	public readonly failures: string[] = [];
 	public isFailed = false;
 
 	private debugEnabled = false;
@@ -141,7 +142,7 @@ export class FakeCore implements Core {
 		this.uploadError = error;
 	}
 
-	public async uploadArtifact(name: string, files: Array<{ name: string; path: string }>): Promise<{ id?: number }> {
+	public async uploadArtifact(name: string, files: ArtifactFile[]): Promise<{ id?: number }> {
 		this.uploadedArtifacts.push({ name, files });
 
 		if (this.uploadError !== undefined) {
@@ -151,8 +152,8 @@ export class FakeCore implements Core {
 		return this.uploadFails ? { id: undefined } : { id: 42 };
 	}
 
-	public setFailed(message: string): never {
-		this.error(message);
-		throw new Error(message);
+	public setFailed(message: string): void {
+		this.isFailed = true;
+		this.failures.push(message);
 	}
 }
