@@ -83,7 +83,6 @@ interface AttachmentKind {
 	artifact: string;
 	contentType: string;
 	extension: string;
-	noun: string;
 	label: string;
 }
 
@@ -93,7 +92,6 @@ const attachmentKinds: readonly AttachmentKind[] = [
 		artifact: "playwright-screenshots",
 		contentType: "image/png",
 		extension: "png",
-		noun: "Screenshot",
 		label: "Screenshots",
 	},
 	{
@@ -101,7 +99,6 @@ const attachmentKinds: readonly AttachmentKind[] = [
 		artifact: "playwright-videos",
 		contentType: "video/webm",
 		extension: "webm",
-		noun: "Video",
 		label: "Videos",
 	},
 ];
@@ -219,10 +216,6 @@ export class GitHubReporter implements Reporter {
 			return undefined;
 		}
 		const plural = kind.label.toLowerCase();
-		if (artifact.id === undefined) {
-			this.core.warning(`${kind.noun} artifact upload returned no ID, so the summary does not link to ${plural}.`);
-			return undefined;
-		}
 		const url = artifactUrl(artifact.id);
 		if (url === undefined) {
 			this.core.warning(`GitHub run environment is missing, so the summary does not link to ${plural}.`);
@@ -235,7 +228,7 @@ export class GitHubReporter implements Reporter {
 		artifact,
 		contentType,
 		extension,
-	}: AttachmentKind): Promise<{ id?: number } | undefined> {
+	}: AttachmentKind): Promise<{ id: number } | undefined> {
 		const files = this.attachmentFiles(this.unexpectedTests(), contentType, extension);
 		if (files.length === 0) {
 			return undefined;

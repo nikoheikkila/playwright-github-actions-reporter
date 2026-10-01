@@ -54,13 +54,13 @@ async function performUpload(
 	name: string,
 	filePaths: string[],
 	rootDirectory: string,
-): Promise<{ id?: number }> {
+): Promise<{ id: number }> {
 	const response = await client.uploadArtifact(name, filePaths, rootDirectory);
 	if (response.id === undefined) {
 		throw new Error("Artifact upload returned no ID");
 	}
 	coreModule.info(`Uploaded ${name} artifact: ID ${response.id}, ${filePaths.length} file(s)`);
-	return response;
+	return { id: response.id };
 }
 
 export function createArtifactUploader(

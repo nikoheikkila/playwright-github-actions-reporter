@@ -118,7 +118,7 @@ export class FakeCore implements Core {
 		this.infos.push(message);
 	}
 
-	public notice(message: string, _properties?: AnnotationProperties): void {
+	public notice(message: string): void {
 		this.notices.push(message);
 	}
 
@@ -135,7 +135,7 @@ export class FakeCore implements Core {
 		this.uploadError = error;
 	}
 
-	public async uploadArtifact(name: string, files: ArtifactFile[]): Promise<{ id?: number }> {
+	public async uploadArtifact(name: string, files: ArtifactFile[]): Promise<{ id: number }> {
 		this.uploadedArtifacts.push({ name, files });
 
 		if (this.uploadError !== undefined) {
