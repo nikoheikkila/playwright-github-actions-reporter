@@ -1,5 +1,6 @@
 import type { TestCase } from "@playwright/test/reporter";
 import type { ArtifactFile } from "./interface.ts";
+import { lastResult } from "./testCase.ts";
 
 /** Each kind of failure attachment the reporter can upload as one artifact and link from the Failures section. */
 export interface AttachmentKind {
@@ -36,7 +37,7 @@ export const artifactUrl = (id: number): string | undefined => {
 };
 
 const attachmentPaths = (test: TestCase, type: string): string[] =>
-	(test.results.at(-1)?.attachments ?? []).flatMap(({ contentType, path }) =>
+	(lastResult(test)?.attachments ?? []).flatMap(({ contentType, path }) =>
 		contentType === type && path !== undefined ? [path] : [],
 	);
 

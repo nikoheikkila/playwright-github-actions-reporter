@@ -1,8 +1,8 @@
 import type { FullResult, TestCase, TestResult } from "@playwright/test/reporter";
+import type { CountedOutcome, Outcome } from "./testCase.ts";
+import { countedOutcome } from "./testCase.ts";
 
 type Status = TestResult["status"];
-type Outcome = ReturnType<TestCase["outcome"]>;
-export type CountedOutcome = Outcome | "interrupted";
 
 export type Counts = Record<"passed" | "failed" | "flaky" | "skipped" | "interrupted", number>;
 
@@ -14,16 +14,8 @@ const statusLabels = {
 	interrupted: "🛑 Interrupted",
 } as const satisfies Record<Status, string>;
 
-/** `test.outcome()` reports interrupted tests as skipped, so the last result's status tells them apart. */
-export const outcome = (test: TestCase): CountedOutcome => {
-	const outcome = test.outcome();
-	const interrupted = outcome === "skipped" && test.results.at(-1)?.status === "interrupted";
-
-	return interrupted ? "interrupted" : outcome;
-};
-
 export const counts = (tests: TestCase[]): Counts => {
-	const outcomes = tests.map(outcome);
+	const outcomes = tests.map(countedOutcome);
 	const count = (outcome: CountedOutcome) => outcomes.filter((candidate) => candidate === outcome).length;
 
 	return {

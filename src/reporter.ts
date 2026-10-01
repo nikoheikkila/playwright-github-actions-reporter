@@ -17,7 +17,8 @@ import { errorMessage, errorMessages, errorTitle, failureDetails } from "./failu
 import { attributeEscape, inlineHtml, preformattedHtml } from "./html.ts";
 import type { AnnotationProperties, Core, Summary } from "./interface.ts";
 import type { Counts, StoredResult } from "./outcome.ts";
-import { counts, duration, label, outcome, storedResult, titlePath } from "./outcome.ts";
+import { counts, duration, label, storedResult, titlePath } from "./outcome.ts";
+import { countedOutcome, lastResult } from "./testCase.ts";
 
 export interface GitHubReporterOptions {
 	omitTags?: boolean;
@@ -152,7 +153,17 @@ export class GitHubReporter implements Reporter {
 	}
 
 	private unexpectedTests(): TestCase[] {
-		return this.tests.filter((test) => outcome(test) === "unexpected");
+		return this.tests.filter((test) => countedOutcome(test) === "unexpected");
+	}
+
+	/** Tests that never ran have no result to annotate or detail, so they are left out. */
+	private *finishedTests(tests: TestCase[]): Iterable<{ test: TestCase; result: TestResult }> {
+		for (const test of tests) {
+			const result = lastResult(test);
+			if (result !== undefined) {
+				yield { test, result };
+			}
+		}
 	}
 
 	private heading(shard: FullConfig["shard"]): string {
@@ -168,12 +179,8 @@ export class GitHubReporter implements Reporter {
 	}
 
 	private emitAnnotations() {
-		for (const test of this.tests) {
-			const result = test.results.at(-1);
-
-			if (result !== undefined) {
-				this.annotate(test, result);
-			}
+		for (const { test, result } of this.finishedTests(this.tests)) {
+			this.annotate(test, result);
 		}
 
 		for (const { title, message, location } of this.recordedErrors) {
@@ -182,7 +189,7 @@ export class GitHubReporter implements Reporter {
 	}
 
 	private annotate(test: TestCase, result: TestResult) {
-		const testOutcome = outcome(test);
+		const testOutcome = countedOutcome(test);
 
 		if (testOutcome === "unexpected") {
 			for (const { message, location } of errorMessages(test, result)) {
@@ -239,12 +246,8 @@ export class GitHubReporter implements Reporter {
 			this.summary.addLink(label, attributeEscape(url));
 		}
 
-		for (const test of this.unexpectedTests()) {
-			const result = test.results.at(-1);
-
-			if (result !== undefined) {
-				this.summary.addDetails(`❌ ${inlineHtml(titlePath(test))}`, failureDetails(test, result));
-			}
+		for (const { test, result } of this.finishedTests(this.unexpectedTests())) {
+			this.summary.addDetails(`❌ ${inlineHtml(titlePath(test))}`, failureDetails(test, result));
 		}
 	}
 

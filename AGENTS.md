@@ -12,7 +12,8 @@ This project is a custom Playwright reporter that renders the run as a GitHub Ac
 - `index.ts` — default-exported `Reporter` that wires the real `@actions/core` into `GitHubReporter` for production use.
 - `src/reporter.ts` — `GitHubReporter` class implementing Reporter interface, plus the exported `GitHubReporterOptions` (`omitTags`, `title`) that `index.ts` re-exports.
 - `src/html.ts` — the escaping helpers `escapeHtml`, `inlineHtml`, `preformattedHtml` and `attributeEscape`.
-- `src/outcome.ts` — `outcome` / `counts` (every test in exactly one bucket), status labels, titles, durations and the precomputed per-test row values (`storedResult`).
+- `src/outcome.ts` — `counts` (every test in exactly one bucket), status labels, titles, durations and the precomputed per-test row values (`storedResult`).
+- `src/testCase.ts` — plain-function local extension for Playwright's `TestCase`: `lastResult(test)` (the last result or `undefined`), `countedOutcome(test)` (`test.outcome()`, with `"interrupted"` for `skipped` tests whose last result was interrupted) and the `Outcome` / `CountedOutcome` types.
 - `src/failure.ts` — error message extraction with fallbacks, error titles, the failing-step chain and the failure details HTML.
 - `src/attachments.ts` — attachment kinds (screenshots, videos), the artifact URL and the file naming for the uploads.
 - `src/artifact.ts` — `createArtifactUploader`, the production `core.uploadArtifact`: checks the runtime variables, file names and file types, stages renamed files in a temp directory and uploads them with `@actions/artifact` (used for both screenshots and videos). `src/filenames.ts` holds the file name and path helpers it uses.
