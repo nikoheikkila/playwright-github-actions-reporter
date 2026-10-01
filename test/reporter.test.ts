@@ -920,7 +920,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		const titlePath = ["Tests", "example.spec.ts", "example test"];
 		const location = { file: "/path/to/example.spec.ts", line: 3, column: 7 };
 
-		const annotated: Partial<TestCase> = {
+		const annotated: Omit<Partial<TestCase>, "results"> = {
 			location,
 			titlePath(): string[] {
 				return titlePath;
@@ -1169,7 +1169,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 	describe("Failure details", () => {
 		const failuresHeading = "<h3>Failures</h3>";
 
-		const inSpec = (title = "example test"): Partial<TestCase> => ({
+		const inSpec = (title = "example test"): Omit<Partial<TestCase>, "results"> => ({
 			titlePath(): string[] {
 				return ["Tests", "example.spec.ts", title];
 			},
@@ -2301,7 +2301,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 			await defaultReporter.onEnd(createStubFullResult());
 
 			expect(output.split("::warning::").length - 1).toBe(1);
-			expect(output).toContain("Actions runtime variables");
+			expect(output).toContain("::warning::Artifact upload skipped: the Actions runtime variables");
 			expect(output).not.toContain("Skipping artifact upload");
 		});
 	});

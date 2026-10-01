@@ -206,7 +206,7 @@ export function createStubFullResult(overrides: Partial<FullResult> = {}): FullR
 }
 
 export function createStubFailingTestCase(
-	testOverrides: Omit<Partial<TestCase>, "results"> = {},
+	testOverrides: Omit<Partial<TestCase>, "results"> & { results?: never } = {},
 	resultOverrides: Partial<TestResult> = {},
 ): TestCase {
 	return createStubTestCase({
