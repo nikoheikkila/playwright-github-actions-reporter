@@ -18,7 +18,7 @@ import { attributeEscape, inlineHtml, preformattedHtml } from "./html.ts";
 import type { AnnotationProperties, Core, Summary } from "./interface.ts";
 import type { Counts, StoredResult } from "./outcome.ts";
 import { counts, duration, label, storedResult, titlePath } from "./outcome.ts";
-import { countedOutcome, lastResult } from "./testCase.ts";
+import { countedOutcome, finishedTests } from "./testCase.ts";
 
 export interface GitHubReporterOptions {
 	omitTags?: boolean;
@@ -156,16 +156,6 @@ export class GitHubReporter implements Reporter {
 		return this.tests.filter((test) => countedOutcome(test) === "unexpected");
 	}
 
-	/** Tests that never ran have no result to annotate or detail, so they are left out. */
-	private *finishedTests(tests: TestCase[]): Iterable<{ test: TestCase; result: TestResult }> {
-		for (const test of tests) {
-			const result = lastResult(test);
-			if (result !== undefined) {
-				yield { test, result };
-			}
-		}
-	}
-
 	private heading(shard: FullConfig["shard"]): string {
 		const title = inlineHtml(this.options.title ?? "🎭 Playwright Test Report");
 
@@ -179,7 +169,7 @@ export class GitHubReporter implements Reporter {
 	}
 
 	private emitAnnotations() {
-		for (const { test, result } of this.finishedTests(this.tests)) {
+		for (const { test, result } of finishedTests(this.tests)) {
 			this.annotate(test, result);
 		}
 
@@ -246,7 +236,7 @@ export class GitHubReporter implements Reporter {
 			this.summary.addLink(label, attributeEscape(url));
 		}
 
-		for (const { test, result } of this.finishedTests(this.unexpectedTests())) {
+		for (const { test, result } of finishedTests(this.unexpectedTests())) {
 			this.summary.addDetails(`❌ ${inlineHtml(titlePath(test))}`, failureDetails(test, result));
 		}
 	}

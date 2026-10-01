@@ -14,3 +14,13 @@ export function countedOutcome(test: TestCase): CountedOutcome {
 	}
 	return outcome;
 }
+
+/** Tests that never ran have no result to annotate or detail, so they are left out. */
+export function* finishedTests(tests: TestCase[]): Iterable<{ test: TestCase; result: TestResult }> {
+	for (const test of tests) {
+		const result = lastResult(test);
+		if (result !== undefined) {
+			yield { test, result };
+		}
+	}
+}
