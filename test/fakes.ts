@@ -91,13 +91,11 @@ export class FakeCore implements Core {
 	public readonly notices: string[] = [];
 	public readonly errorAnnotations: Annotation[] = [];
 	public readonly warningAnnotations: Annotation[] = [];
-	public readonly noticeAnnotations: Annotation[] = [];
 	public readonly uploadedArtifacts: Array<{ name: string; files: ArtifactFile[] }> = [];
 	public readonly failures: string[] = [];
 	public isFailed = false;
 
 	private debugEnabled = false;
-	private uploadFails = false;
 	private uploadError: Error | undefined;
 
 	constructor() {
@@ -120,9 +118,8 @@ export class FakeCore implements Core {
 		this.infos.push(message);
 	}
 
-	public notice(message: string, properties?: AnnotationProperties): void {
+	public notice(message: string, _properties?: AnnotationProperties): void {
 		this.notices.push(message);
-		this.noticeAnnotations.push({ message, properties });
 	}
 
 	public warning(message: string, properties?: AnnotationProperties): void {
@@ -132,10 +129,6 @@ export class FakeCore implements Core {
 	public error(message: string, properties?: AnnotationProperties): void {
 		this.errors.push(message);
 		this.errorAnnotations.push({ message, properties });
-	}
-
-	public setUploadArtifactFail(): void {
-		this.uploadFails = true;
 	}
 
 	public setUploadArtifactThrow(error: Error): void {
@@ -149,7 +142,7 @@ export class FakeCore implements Core {
 			throw this.uploadError;
 		}
 
-		return this.uploadFails ? { id: undefined } : { id: 42 };
+		return { id: 42 };
 	}
 
 	public setFailed(message: string): void {

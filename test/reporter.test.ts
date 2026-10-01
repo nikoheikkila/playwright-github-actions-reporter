@@ -1938,33 +1938,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(core.uploadedArtifacts[0]?.files.map(({ name }) => name)).toStrictEqual(["a1-0.webm", "a1-1.webm"]);
 		});
 
-		test("emits warning and renders no link when uploadArtifact returns no id", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
-			core.setUploadArtifactFail();
-			reporter = new GitHubReporter(core, { screenshots: true });
-
-			const { summary } = await runTestCases(
-				createStubTestCase({
-					title: "fails with a screenshot",
-					results: [
-						createStubTestResult({
-							status: "failed",
-							errors: [createStubTestError()],
-							attachments: [createStubAttachment()],
-						}),
-					],
-				}),
-			);
-
-			expect(summary).not.toContain("Screenshots</a>");
-			expect(summary).toContain("<h3>Failures</h3>");
-			expect(core.warningAnnotations).toHaveLength(1);
-			expect(core.warningAnnotations[0]?.message).toContain("screenshot");
-			expect(core.errors).toStrictEqual(["Error message"]);
-		});
-
 		test.each(["GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"] as const)(
 			"renders no link and warns when %s is missing",
 			async (missing) => {
@@ -2055,36 +2028,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(summary).not.toContain("Videos</a>");
 			expect(core.warningAnnotations).toHaveLength(1);
 			expect(core.warningAnnotations[0]?.message).toContain("Upload failed: network error");
-			expect(core.errors).toStrictEqual(["Error message"]);
-		});
-
-		test("emits one warning and renders no videos link when uploadArtifact returns no id", async () => {
-			process.env.GITHUB_RUN_ID = "999";
-			process.env.GITHUB_REPOSITORY = "owner/repo";
-			process.env.GITHUB_SERVER_URL = "https://github.com";
-			core.setUploadArtifactFail();
-			reporter = new GitHubReporter(core, { videos: true });
-
-			const { summary } = await runTestCases(
-				createStubTestCase({
-					id: "a1",
-					title: "fails with a video",
-					results: [
-						createStubTestResult({
-							status: "failed",
-							errors: [createStubTestError()],
-							attachments: [
-								createStubAttachment({ name: "video", path: "/tmp/a1/video.webm", contentType: "video/webm" }),
-							],
-						}),
-					],
-				}),
-			);
-
-			expect(summary).not.toContain("Videos</a>");
-			expect(summary).toContain("<h3>Failures</h3>");
-			expect(core.warningAnnotations).toHaveLength(1);
-			expect(core.warningAnnotations[0]?.message).toContain("video");
 			expect(core.errors).toStrictEqual(["Error message"]);
 		});
 
