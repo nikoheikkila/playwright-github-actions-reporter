@@ -12,6 +12,8 @@ import type {
 	TestStep,
 	WorkerInfo,
 } from "@playwright/test/reporter";
+import type { ErrorMessage } from "./html.ts";
+import { attributeEscape, inlineHtml, preformattedHtml } from "./html.ts";
 import type { AnnotationProperties, ArtifactFile, Core, Summary } from "./interface.ts";
 
 type Status = TestResult["status"];
@@ -38,29 +40,9 @@ type ResultMap = Map<TestCase["id"], StoredResult>;
 
 type Counts = Record<"passed" | "failed" | "flaky" | "skipped" | "interrupted", number>;
 
-interface ErrorMessage {
-	message: string;
-	snippet?: string;
-	location?: Location;
-}
-
 interface RecordedError extends ErrorMessage {
 	title: string;
 }
-
-const lineBreaks = /\r\n|\r|\n/g;
-
-const escapeHtml = (text: string): string =>
-	text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-
-const inlineHtml = (text: string): string => escapeHtml(text).replaceAll(/\s*[\r\n]+\s*/g, " ");
-
-const preformattedHtml = ({ message, snippet }: ErrorMessage): string =>
-	(snippet === undefined ? [message] : [message, snippet])
-		.map((text) => `<pre>${escapeHtml(text).replaceAll(lineBreaks, "&#10;")}</pre>`)
-		.join("");
-
-const attributeEscape = (text: string): string => inlineHtml(text).replaceAll('"', "&quot;");
 
 const artifactUrl = (id: number): string | undefined => {
 	const { GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID } = process.env;

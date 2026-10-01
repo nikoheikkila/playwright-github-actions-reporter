@@ -267,11 +267,13 @@ The reporter depends on the `Core` abstraction defined in `src/interface.ts` rat
 index.ts                  # Production entry point (wires @actions/core)
 src/
   reporter.ts             # GitHubReporter: implements Playwright's Reporter interface
+  html.ts                 # HTML escaping helpers
   interface.ts            # Core / Summary / AnnotationProperties abstractions
   artifact.ts             # Screenshot artifact upload via @actions/artifact
   filenames.ts            # Artifact file name and path helpers
 test/
-  reporter.test.ts        # Unit test suite (bun:test)
+  *.test.ts               # Unit test suites by topic (bun:test)
+  harness.ts              # Shared runTests / runTestCases / count
   fakes.ts                # FakeCore / FakeSummary for isolated testing
   stubs.ts                # Factory functions for Playwright fixture objects
 e2e/

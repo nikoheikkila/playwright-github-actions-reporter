@@ -11,9 +11,10 @@ This project is a custom Playwright reporter that renders the run as a GitHub Ac
 
 - `index.ts` — default-exported `Reporter` that wires the real `@actions/core` into `GitHubReporter` for production use.
 - `src/reporter.ts` — `GitHubReporter` class implementing Reporter interface, plus the exported `GitHubReporterOptions` (`omitTags`, `title`) that `index.ts` re-exports.
+- `src/html.ts` — the escaping helpers `escapeHtml`, `inlineHtml`, `preformattedHtml` and `attributeEscape`.
 - `src/artifact.ts` — `createArtifactUploader`, the production `core.uploadArtifact`: checks the runtime variables, file names and file types, stages renamed files in a temp directory and uploads them with `@actions/artifact` (used for both screenshots and videos). `src/filenames.ts` holds the file name and path helpers it uses.
 - `src/interface.ts` — minimal `Core` / `Summary` / `SummaryTableRow` / `AnnotationProperties` types mirroring the subset of `@actions/core` we use. Production code depends on these abstractions, not on `@actions/core` directly, so tests can substitute fakes.
-- `test/` — `bun:test` unit tests with `FakeCore` / `FakeSummary` (`test/fakes.ts`) and `createStubX` factories for Playwright fixtures (`test/stubs.ts`).
+- `test/` — `bun:test` unit tests with `FakeCore` / `FakeSummary` (`test/fakes.ts`) and `createStubX` factories for Playwright fixtures (`test/stubs.ts`). Suites are split by topic: `reporter.test.ts` (Full Report Snapshot only), `summary.test.ts`, `details.test.ts` (Test details), `annotations.test.ts`, `failures.test.ts` (Failure details and Errors outside tests), `attachments.test.ts` (Screenshots etc.) and `artifact.test.ts`. `test/harness.ts` holds the shared `runTests` / `runTestCases` / `count`, next to `test/helpers.ts` and `test/env.ts`.
 - `e2e/` — Playwright suite (`example.spec.ts`) that intentionally contains passing / expected-failure / timing-out / flaky / failing-step / skipped tests; the rendered summary is diffed against `e2e/snapshots/summary.md`.
 - `scripts/diffPlaywrightTypes.ts` — diffs the reporter-facing Playwright type definitions against another version (`task playwright:diff`).
 
@@ -40,7 +41,7 @@ These aren't obvious from the docs, and each one caused a bug or a review block 
 
 GitHub renders the summary as GFM with embedded HTML, and none of the `@actions/core` `Summary` methods escape their input:
 
-- Put every piece of test-controlled text (titles, tags, step titles/subtitles, project names, error messages, snippets) through the helpers in `src/reporter.ts`. Use `inlineHtml` for single-line contexts: it escapes HTML and collapses line breaks into one space. Use `preformattedHtml` for `<pre>` blocks: it escapes HTML and encodes line breaks as `&#10;`.
+- Put every piece of test-controlled text (titles, tags, step titles/subtitles, project names, error messages, snippets) through the helpers in `src/html.ts`. Use `inlineHtml` for single-line contexts: it escapes HTML and collapses line breaks into one space. Use `preformattedHtml` for `<pre>` blocks: it escapes HTML and encodes line breaks as `&#10;`.
 - **A blank line ends a GFM HTML block.** A raw newline inside `<details>` / `<pre>` can break the collapsible and leak the rest as Markdown. That's why `<pre>` content encodes `\r\n`, `\r` and `\n` as `&#10;`.
 - Never render `error.stack`. It contains absolute paths, which make `e2e/snapshots/summary.md` differ from machine to machine. Messages and snippets are deterministic.
 - GitHub shows at most 10 error and 10 warning annotations per step. The summary is the complete record, so every failure must still appear there.
@@ -62,7 +63,7 @@ Run everything through Task — these are what CI runs.
 
 Ad-hoc variants:
 
-- Single test file: `bun test test/reporter.test.ts`. Single test by name: `bun test -t "<name pattern>"`.
+- Single test file: `bun test test/failures.test.ts`. Single test by name: `bun test -t "<name pattern>"`.
 - Update the `bun:test` snapshot (`test/__snapshots__/reporter.test.ts.snap`): `bun test --update-snapshots`.
 - Regenerate the e2e snapshot: `task verify summary=e2e/snapshots/summary.md`.
 
@@ -117,8 +118,8 @@ Biome (`biome.json`) is strict and enforced via `task lint` and the lint-staged 
 
 Almost every change to `src/reporter.ts` touches the same set of files. Load all of them up front, including when you hand work to a subagent:
 
-- `src/reporter.ts`, `src/interface.ts` (if the `Core`/`Summary` surface changes), `index.ts` (if constructor or exports change)
-- `test/reporter.test.ts`, `test/fakes.ts`, `test/stubs.ts`
+- `src/reporter.ts`, `src/html.ts` (if escaping changes), `src/interface.ts` (if the `Core`/`Summary` surface changes), `index.ts` (if constructor or exports change)
+- the test files for the area you change (`test/reporter.test.ts`, `summary.test.ts`, `details.test.ts`, `annotations.test.ts`, `failures.test.ts`, `attachments.test.ts`, `artifact.test.ts`), plus `test/harness.ts`, `test/helpers.ts`, `test/env.ts`, `test/fakes.ts`, `test/stubs.ts`
 - `test/__snapshots__/reporter.test.ts.snap` and `e2e/snapshots/summary.md`: any rendering change moves one or both
 - `e2e/example.spec.ts` when the change needs a real Playwright scenario
 - `README.md` (Overview / Features / options) and the "Reporter lifecycle" section above when behaviour changes
