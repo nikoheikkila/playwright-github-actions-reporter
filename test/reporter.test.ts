@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1072,6 +1072,13 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(core.errorAnnotations).toEqual([
 				expect.objectContaining({ message: expect.stringMatching(/^Unexpected status:/) }),
 			]);
+		});
+
+		test("falls back to the unexpected status in the annotation and Failures section when a failed test has no errors", async () => {
+			const { summary } = await runTestCases(createStubFailingTestCase({}, { errors: [] }));
+
+			expect(core.errorAnnotations).toEqual([expect.objectContaining({ message: "Unexpected status: failed" })]);
+			expect(section(summary, "Failures")).toContain("Unexpected status: failed");
 		});
 
 		test("emits warning annotation for flaky test", async () => {
@@ -2287,12 +2294,14 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(summary).not.toContain("Screenshots</a>");
 			expect(summary).not.toContain("undefined");
 
+			output = "";
 			const defaultReporter = new Reporter({ screenshots: true });
 			defaultReporter.onBegin(createStubConfig(), createStubSuite({ allTests: () => [testCase] }));
 			defaultReporter.onTestEnd(testCase, testCase.results[0] as TestResult);
 			await defaultReporter.onEnd(createStubFullResult());
 
 			expect(output.split("::warning::").length - 1).toBe(1);
+			expect(output).toContain("Actions runtime variables");
 			expect(output).not.toContain("Skipping artifact upload");
 		});
 	});
@@ -2300,6 +2309,10 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 describe("createArtifactUploader", () => {
 	preserveEnv("ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL", "TMPDIR");
+
+	afterEach(() => {
+		mock.restore();
+	});
 
 	beforeEach(() => {
 		process.env.ACTIONS_RUNTIME_TOKEN = "token";
@@ -2327,7 +2340,6 @@ describe("createArtifactUploader", () => {
 
 		await expect(upload).rejects.toThrow("boom");
 		expect(warning).not.toHaveBeenCalled();
-		warning.mockRestore();
 	});
 
 	test.each([
@@ -2344,7 +2356,6 @@ describe("createArtifactUploader", () => {
 		await expect(upload).rejects.toThrow(Error);
 		expect(calls).toHaveLength(0);
 		expect(warning).not.toHaveBeenCalled();
-		warning.mockRestore();
 	});
 
 	test("uploads with the common ancestor of all file paths as root directory", async () => {
@@ -2390,7 +2401,7 @@ describe("createArtifactUploader", () => {
 				throw new Error("upload failed");
 			},
 		} as unknown as DefaultArtifactClient;
-		const warning = silenceWarnings();
+		silenceWarnings();
 
 		await withSourceFiles({ "1.png": "image-bytes" }, async (source) => {
 			const upload = createArtifactUploader(client);
@@ -2400,7 +2411,6 @@ describe("createArtifactUploader", () => {
 			await expect(upload("shots", files)).rejects.toThrow("upload failed");
 		});
 
-		warning.mockRestore();
 		const [first, second] = seen;
 		expect(seen).toHaveLength(2);
 		expect(first?.staged).toBe("image-bytes");
