@@ -38,8 +38,6 @@ export class GitHubReporter implements Reporter {
 	private tests: TestCase[] = [];
 	private failOnFlakyTests = false;
 	private workspace = "";
-	/** Artifact URLs keyed by link label, in upload order. */
-	private readonly artifactLinks = new Map<string, string>();
 
 	constructor(core: Core, options: GitHubReporterOptions = {}) {
 		this.core = core;
@@ -92,9 +90,9 @@ export class GitHubReporter implements Reporter {
 		this.collectDetailedResults();
 
 		if (runCounts.failed > 0) {
-			// The upload is awaited before the Failures section so one artifact link per attachment kind can be rendered under the heading.
-			await this.uploadAttachments();
-			this.collectFailureDetails();
+			// Awaited first so the artifact links render under the Failures heading.
+			const links = await this.uploadAttachments();
+			this.collectFailureDetails(links);
 		}
 
 		if (this.recordedErrors.length > 0) {
@@ -116,13 +114,16 @@ export class GitHubReporter implements Reporter {
 		}
 	}
 
-	private async uploadAttachments(): Promise<void> {
+	/** Resolves to artifact URLs keyed by link label, in upload order. */
+	private async uploadAttachments(): Promise<ReadonlyMap<string, string>> {
+		const links = new Map<string, string>();
 		for (const kind of attachmentKinds.filter(({ option }) => this.options[option] === true)) {
 			const url = await this.uploadArtifactLink(kind);
 			if (url !== undefined) {
-				this.artifactLinks.set(kind.label, url);
+				links.set(kind.label, url);
 			}
 		}
+		return links;
 	}
 
 	private async uploadArtifactLink(kind: AttachmentKind): Promise<string | undefined> {
@@ -229,10 +230,10 @@ export class GitHubReporter implements Reporter {
 			.addRaw("</details>");
 	}
 
-	private collectFailureDetails() {
+	private collectFailureDetails(links: ReadonlyMap<string, string>) {
 		this.summary.addHeading("Failures", 3);
 
-		for (const [label, url] of this.artifactLinks) {
+		for (const [label, url] of links) {
 			this.summary.addLink(label, attributeEscape(url));
 		}
 
