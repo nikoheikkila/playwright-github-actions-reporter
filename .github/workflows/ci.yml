@@ -74,9 +74,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  mutation:
+    name: Mutation Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Install dependencies
+        uses: ./.github/actions/install-dependencies
+
+      - name: Run mutation tests
+        run: task mutation
+
+      - name: Upload mutation report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report
+          path: reports/mutation/
+
   release-please:
     name: Release Please
-    needs: tests
+    needs: [tests, mutation]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

@@ -181,6 +181,7 @@ describe("createArtifactUploader", () => {
 			const error = await createArtifactUploader(client)("shots", [{ name: "1.png", path }]).catch((e: Error) => e);
 
 			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toBe('Invalid artifact file: "1.png" is not a regular file');
 			expect((error as Error).message).not.toContain("secret-contents");
 			expect((error as Error).message).not.toContain(source);
 			expect(calls).toHaveLength(0);
@@ -218,5 +219,54 @@ describe("createArtifactUploader", () => {
 		expect(calls[0]?.files).toStrictEqual([join(root, "first-renamed.png"), join(root, "second-renamed.png")]);
 		expect(basename(root).startsWith("playwright-artifact-")).toBe(true);
 		expect(existsSync(root)).toBe(false);
+	});
+
+	test("removes a staging directory that holds staged files after a successful upload", async () => {
+		const { client, calls } = createClient(async () => ({ id: 1 }));
+
+		await withSourceFiles({ "1.png": "image-bytes" }, (source) =>
+			createArtifactUploader(client)("shots", [{ name: "renamed.png", path: join(source, "1.png") }]),
+		);
+
+		expect(existsSync(calls[0]?.root ?? "")).toBe(false);
+	});
+
+	test("uploads from the current directory when there are no files", async () => {
+		const { client, calls } = createClient(async () => ({ id: 1 }));
+
+		await createArtifactUploader(client)("shots", []);
+
+		expect(calls[0]).toStrictEqual({ name: "shots", files: [], root: process.cwd() });
+	});
+
+	test("uploads files in place when none is renamed", async () => {
+		const { client, calls } = createClient(async () => ({ id: 1 }));
+
+		await withSourceFiles({ "a.png": "a", "b.png": "b" }, async (source) => {
+			await createArtifactUploader(client)("shots", [
+				{ name: "a.png", path: join(source, "a.png") },
+				{ name: "b.png", path: join(source, "b.png") },
+			]);
+
+			expect(calls[0]).toStrictEqual({
+				name: "shots",
+				files: [join(source, "a.png"), join(source, "b.png")],
+				root: source,
+			});
+		});
+	});
+
+	test("stages every file when only some of them are renamed", async () => {
+		const { client, calls } = createClient(async () => ({ id: 1 }));
+
+		await withSourceFiles({ "a.png": "a", "b.png": "b" }, (source) =>
+			createArtifactUploader(client)("shots", [
+				{ name: "a.png", path: join(source, "a.png") },
+				{ name: "renamed.png", path: join(source, "b.png") },
+			]),
+		);
+
+		const root = calls[0]?.root ?? "";
+		expect(calls[0]?.files).toStrictEqual([join(root, "a.png"), join(root, "renamed.png")]);
 	});
 });

@@ -29,7 +29,10 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.14",
+		"@hughescr/stryker-bun-runner": "1.4.0",
 		"@playwright/test": "1.63.0",
+		"@stryker-mutator/core": "10.0.0",
+		"@stryker-mutator/typescript-checker": "10.0.0",
 		"@types/bun": "latest",
 		"husky": "^9.1.7",
 		"lint-staged": "^16.4.0",

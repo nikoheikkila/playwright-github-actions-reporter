@@ -63,6 +63,7 @@ Run everything through Task — these are what CI runs.
 - `task verify summary=<path>` — Playwright run + `diff` against `e2e/snapshots/summary.md`. The Playwright step has `ignore_error: true` because the e2e suite fails on purpose, so only the `diff` sets the exit code.
 - `task build` — `bun build` bundles `index.ts` into `dist/` (with `@actions/core` and `@playwright/test` kept external), then `tsc -p tsconfig.build.json` emits only the `.d.ts` files. `prepublishOnly` runs this.
 - `task playwright:diff version=<x>` — diff the reporter-facing types of the installed Playwright against version `<x>` (default `latest`). Read-only, nothing is installed.
+- `task mutation` — Stryker mutation run over `src/` (Bun runner with per-test coverage, TypeScript checker). Reports land in `reports/mutation/` (`mutation.html`, `mutation.json`), which is git-ignored. `task mutation:incremental` reuses earlier results; `task mutation:diff base=<ref>` mutates only the production files changed since `<ref>` and needs a clean working tree.
 - `task test:all` — format → lint → typecheck → test → verify → build (full local pipeline)
 
 Ad-hoc variants:
@@ -137,5 +138,5 @@ To upgrade Playwright, follow the `upgrade-playwright` skill in `.claude/skills/
 ## Pre-commit and CI
 
 - `.husky/pre-commit` runs `bunx lint-staged` (Biome write on staged JS/TS/JSON) followed by `task test`. Don't bypass with `--no-verify`; if a hook fails, fix the underlying issue.
-- `.github/workflows/ci.yml` runs `task lint`, `task typecheck`, `task test`, then `task verify` against the runner-provided `$GITHUB_STEP_SUMMARY`. Keep these green before opening a PR.
+- `.github/workflows/ci.yml` runs `task lint`, `task typecheck`, `task test`, then `task verify` against the runner-provided `$GITHUB_STEP_SUMMARY`. A parallel `mutation` job runs `task mutation` and uploads `reports/mutation/` as the `mutation-report` artifact. It has no score threshold yet, so it fails only when Stryker itself fails. Release Please waits for both jobs. Keep these green before opening a PR.
 - Releases come from Release Please: on pushes to `main`, it opens or updates a release PR based on Conventional Commit messages (`feat:`, `fix:`, `chore:`, `docs:` …). Merging that PR tags the release and runs `npm publish --provenance`. Use Conventional Commit messages. Don't bump `version` in `package.json` or edit `CHANGELOG.md` by hand.
