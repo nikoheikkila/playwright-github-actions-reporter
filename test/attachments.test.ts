@@ -177,8 +177,7 @@ describe("Playwright GitHub Actions Reporter", () => {
 		});
 
 		test("still logs the upload info line and warns once when the run environment is missing", async () => {
-			setRunEnvironment();
-			delete process.env.GITHUB_RUN_ID;
+			setRunEnvironment({ runId: "" });
 			reporter = new GitHubReporter(core, { screenshots: true });
 
 			await runTestCases(

@@ -1,6 +1,12 @@
 import * as os from "node:os";
 import type { AnnotationProperties, ArtifactFile, Core, Summary, SummaryTableRow } from "../src/interface.ts";
 
+type UploadArtifact = Core["uploadArtifact"];
+
+interface FakeCoreOptions {
+	uploadArtifact?: UploadArtifact;
+}
+
 interface Annotation {
 	message: string;
 	properties?: AnnotationProperties;
@@ -98,9 +104,9 @@ export class FakeCore implements Core {
 	private debugEnabled = false;
 	private uploadError: Error | undefined;
 	private uploadErrorArtifact: string | undefined;
-	private readonly uploader: Core["uploadArtifact"];
+	private readonly uploader: UploadArtifact;
 
-	constructor({ uploadArtifact = async () => ({ id: 42 }) }: { uploadArtifact?: Core["uploadArtifact"] } = {}) {
+	constructor({ uploadArtifact = async () => ({ id: 42 }) }: FakeCoreOptions = {}) {
 		this.summary = new FakeSummary();
 		this.uploader = uploadArtifact;
 	}
