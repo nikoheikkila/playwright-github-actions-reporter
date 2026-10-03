@@ -67,6 +67,18 @@ tasks:
       - bun build index.ts --outdir dist --target node --external '@actions/core' --external '@actions/artifact' --external '@playwright/test'
       - bunx tsc --project tsconfig.build.json
 
+  mutation:
+    desc: Mutation-test every production file with Stryker (report in reports/mutation/)
+    cmd: bunx stryker run
+
+  mutation:incremental:
+    desc: Mutation-test with Stryker, reusing results for unchanged code and tests
+    cmd: bunx stryker run --incremental
+
+  mutation:diff:
+    desc: Mutation-test the production files changed since a base branch (default origin/HEAD)
+    cmd: bun scripts/strykerDiff.ts {{ .base }}
+
   playwright:diff:
     desc: Diff reporter-facing Playwright types between the installed and a target version (default latest)
     cmd: bun scripts/diffPlaywrightTypes.ts {{ .version | default "latest" }}
