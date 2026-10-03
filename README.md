@@ -151,12 +151,12 @@ export default defineConfig({
 |--------------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------|
 | `omitTags`   | `boolean` | When `true`, hides the Tags column from the results table. Defaults to `false`. Matches Playwright's built-in `omitTags` option in 1.63+. |
 | `title`      | `string`  | Custom heading for the report, replacing "🎭 Playwright Test Report". Defaults to the standard heading.                                      |
-| `screenshots` | `boolean` | When `true`, uploads the screenshots of failed tests as a GitHub Actions artifact and links to it in the report. The upload needs the Actions runtime variables `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_RESULTS_URL`. GitHub exposes these only to actions (`uses:` steps), not to `run:` steps, so you have to pass them to the Playwright step yourself. See [Setting up screenshot uploads](#setting-up-screenshot-uploads). If they're missing, the reporter skips the upload and logs a warning. Defaults to `false`. |
-| `videos` | `boolean` | When `true`, uploads the `video/webm` attachments of failed tests as the `playwright-videos` GitHub Actions artifact and links to it once, as "Videos", under Failures next to the "Screenshots" link. It needs the same Actions runtime variables as `screenshots` (see [Setting up screenshot uploads](#setting-up-screenshot-uploads)); if they are missing, the reporter skips the upload and logs a warning. Defaults to `false`. |
+| `screenshots` | `boolean` | When `true`, uploads the screenshots of failed tests as a GitHub Actions artifact and links to it in the report. The upload needs the Actions runtime variables `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_RESULTS_URL`. GitHub exposes these only to actions (`uses:` steps), not to `run:` steps, so you have to pass them to the Playwright step yourself. See [Setting up artifact uploads](#setting-up-artifact-uploads). If they're missing, the reporter skips the upload and logs a warning. Defaults to `false`. |
+| `videos` | `boolean` | When `true`, uploads the `video/webm` attachments of failed tests as the `playwright-videos` GitHub Actions artifact and links to it once, as "Videos", under Failures next to the "Screenshots" link. It needs the same Actions runtime variables as `screenshots` (see [Setting up artifact uploads](#setting-up-artifact-uploads)); if they are missing, the reporter skips the upload and logs a warning. Defaults to `false`. |
 
 When running sharded tests (configured with `shard` in `playwright.config.ts`), the report automatically appends " (shard x/y)" to the heading, so parallel jobs can be distinguished in the summary.
 
-### Setting up screenshot uploads
+### Setting up artifact uploads
 
 The `screenshots` option uploads artifacts through the GitHub Actions artifact service. That service authenticates with two runtime variables, `ACTIONS_RUNTIME_TOKEN` and `ACTIONS_RESULTS_URL`. GitHub sets them only for actions (steps with `uses:`). Steps with `run:`, such as `npx playwright test`, don't get them, so the upload is skipped.
 
@@ -272,7 +272,7 @@ src/
   failure.ts              # Error messages, failing-step chain and failure details HTML
   attachments.ts          # Attachment kinds, artifact URL, upload file naming and uploadAttachments
   interface.ts            # Core / Summary / AnnotationProperties abstractions
-  artifact.ts             # Screenshot artifact upload via @actions/artifact
+  artifact.ts             # Artifact upload (screenshots and videos) via @actions/artifact
   filenames.ts            # Artifact file name and path helpers
 test/
   *.test.ts               # Unit test suites by topic: summary, summary-counts, summary-flaky, options, logging,

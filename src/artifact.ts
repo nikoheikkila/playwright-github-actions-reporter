@@ -63,7 +63,7 @@ async function prepareUpload(files: ArtifactFile[]): Promise<Upload> {
 	if (!(hasCustomNames && (await filesExist(files)))) {
 		return { filePaths, rootDirectory };
 	}
-	const stagingDir = await mkdtemp(join(tmpdir(), "playwright-screenshots-"));
+	const stagingDir = await mkdtemp(join(tmpdir(), "playwright-artifact-"));
 	try {
 		return { filePaths: await stageFilesWithNames(files, stagingDir), rootDirectory: stagingDir, stagingDir };
 	} catch (error) {
@@ -87,7 +87,7 @@ export function createArtifactUploader(
 	return async (name: string, files: ArtifactFile[]) => {
 		if (!(process.env.ACTIONS_RUNTIME_TOKEN && process.env.ACTIONS_RESULTS_URL)) {
 			throw new Error(
-				"Artifact upload skipped: the Actions runtime variables ACTIONS_RUNTIME_TOKEN and ACTIONS_RESULTS_URL are missing. GitHub exposes them only to `uses:` steps, not `run:` steps. See the `screenshots` option in the README for setup.",
+				"Artifact upload skipped: the Actions runtime variables ACTIONS_RUNTIME_TOKEN and ACTIONS_RESULTS_URL are missing. GitHub exposes them only to `uses:` steps, not `run:` steps. See the `screenshots` and `videos` options in the README for setup.",
 			);
 		}
 

@@ -75,6 +75,9 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 			expect(core.warningAnnotations).toHaveLength(1);
 			expect(core.warningAnnotations[0]?.message).toContain("Actions runtime variables");
+			expect(core.warningAnnotations[0]?.message).toContain(
+				"See the `screenshots` and `videos` options in the README for setup.",
+			);
 			expect(core.isFailed).toBe(false);
 			expect(summary).not.toContain("Screenshots</a>");
 			expect(summary).not.toContain("undefined");
@@ -201,7 +204,7 @@ describe("createArtifactUploader", () => {
 		expect(seen).toHaveLength(2);
 		expect(first?.staged).toBe("image-bytes");
 		expect(dirname(first?.root ?? "")).toBe(uploadTmpdir);
-		expect(basename(first?.root ?? "").startsWith("playwright-screenshots-")).toBe(true);
+		expect(basename(first?.root ?? "").startsWith("playwright-artifact-")).toBe(true);
 		expect(first?.root).not.toBe(second?.root);
 		expect(first?.mode).toBe(0o700);
 		expect(existsSync(first?.root ?? "")).toBe(false);
@@ -259,7 +262,7 @@ describe("createArtifactUploader", () => {
 		expect(result).toStrictEqual({ id: 123 });
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.files).toStrictEqual([join(root, "first-renamed.png"), join(root, "second-renamed.png")]);
-		expect(basename(root).startsWith("playwright-screenshots-")).toBe(true);
+		expect(basename(root).startsWith("playwright-artifact-")).toBe(true);
 		expect(existsSync(root)).toBe(false);
 	});
 });
