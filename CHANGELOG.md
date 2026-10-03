@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.2.0](https://github.com/nikoheikkila/playwright-github-actions-reporter/compare/v2.1.0...v2.2.0) (2026-10-03)
+
+
+### Features
+
+* attach failure videos to the step summary ([#6](https://github.com/nikoheikkila/playwright-github-actions-reporter/issues/6)) ([dd31be9](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/dd31be9674a680c54dd38a3994884dcf5eac95f4))
+
+
+### Bug Fixes
+
+* name both screenshots and videos in the artifact upload docs and warning ([0cd99b9](https://github.com/nikoheikkila/playwright-github-actions-reporter/commit/0cd99b955f413145da2d8a8b40b2eabcecd54e86)), closes [#18](https://github.com/nikoheikkila/playwright-github-actions-reporter/issues/18)
+
 ## [2.1.0](https://github.com/nikoheikkila/playwright-github-actions-reporter/compare/v2.0.0...v2.1.0) (2026-09-30)
 
 
