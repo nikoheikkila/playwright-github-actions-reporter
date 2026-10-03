@@ -1,4 +1,5 @@
 import type { FullResult, TestCase, TestResult } from "@playwright/test/reporter";
+import { inlineHtml } from "./html.ts";
 import type { CountedOutcome, Outcome } from "./testCase.ts";
 import { countedOutcome } from "./testCase.ts";
 
@@ -59,3 +60,16 @@ export const storedResult = (test: TestCase, result: TestResult): StoredResult =
 	retries: retries(result),
 	tags: tags(test),
 });
+
+export interface TableColumn {
+	header: string;
+	cell(result: StoredResult): string;
+}
+
+export const tableColumns: readonly TableColumn[] = [
+	{ header: "Test", cell: (result) => inlineHtml(result.titlePath) },
+	{ header: "Result", cell: (result) => result.label },
+	{ header: "Duration", cell: (result) => result.duration },
+	{ header: "Retries", cell: (result) => result.retries },
+	{ header: "Tags", cell: (result) => inlineHtml(result.tags) },
+];

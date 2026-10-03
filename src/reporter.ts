@@ -16,7 +16,7 @@ import { errorMessage, errorMessages, errorTitle, failureDetails } from "./failu
 import { attributeEscape, inlineHtml, preformattedHtml } from "./html.ts";
 import type { AnnotationProperties, Core, Summary } from "./interface.ts";
 import type { Counts, StoredResult } from "./outcome.ts";
-import { counts, duration, label, storedResult, titlePath } from "./outcome.ts";
+import { counts, duration, label, storedResult, tableColumns, titlePath } from "./outcome.ts";
 import { countedOutcome, finishedTests } from "./testCase.ts";
 
 export interface GitHubReporterOptions {
@@ -187,10 +187,14 @@ export class GitHubReporter implements Reporter {
 	}
 
 	private collectDetailedResults() {
+		const columns = tableColumns.filter(({ header }) => !(header === "Tags" && this.options.omitTags === true));
+		const headerRow = columns.map(({ header }) => ({ data: header, header: true }));
+		const dataRows = this.results.values().map((result) => columns.map(({ cell }) => cell(result)));
+
 		this.summary
 			.addHeading("Details", 3)
 			.addRaw("<details><summary>Show Test Cases</summary>")
-			.addTable([this.columns, ...this.dataRows])
+			.addTable([headerRow, ...dataRows])
 			.addRaw("</details>");
 	}
 
@@ -212,32 +216,5 @@ export class GitHubReporter implements Reporter {
 		for (const error of this.recordedErrors) {
 			this.summary.addDetails(inlineHtml(error.title), preformattedHtml(error));
 		}
-	}
-
-	private withTags<Cell>(cells: Cell[], tags: Cell): Cell[] {
-		return this.options.omitTags === true ? cells : [...cells, tags];
-	}
-
-	private get dataRows() {
-		return this.results
-			.values()
-			.map((result) =>
-				this.withTags(
-					[inlineHtml(result.titlePath), result.label, result.duration, result.retries],
-					inlineHtml(result.tags),
-				),
-			);
-	}
-
-	private get columns() {
-		return this.withTags(
-			[
-				{ data: "Test", header: true },
-				{ data: "Result", header: true },
-				{ data: "Duration", header: true },
-				{ data: "Retries", header: true },
-			],
-			{ data: "Tags", header: true },
-		);
 	}
 }

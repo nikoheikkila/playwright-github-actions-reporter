@@ -12,7 +12,7 @@ This project is a custom Playwright reporter that renders the run as a GitHub Ac
 - `index.ts` — default-exported `Reporter` that wires the real `@actions/core` into `GitHubReporter` for production use.
 - `src/reporter.ts` — `GitHubReporter` class implementing Reporter interface, plus the exported `GitHubReporterOptions` (`omitTags`, `title`) that `index.ts` re-exports.
 - `src/html.ts` — the escaping helpers `escapeHtml`, `inlineHtml`, `preformattedHtml` and `attributeEscape`.
-- `src/outcome.ts` — `counts` (every test in exactly one bucket), status labels, titles, durations and the precomputed per-test row values (`storedResult`).
+- `src/outcome.ts` — `counts` (every test in exactly one bucket), status labels, titles, durations, the precomputed per-test row values (`storedResult`) and the `tableColumns` descriptor list that drives the Details table.
 - `src/testCase.ts` — plain-function local extension for Playwright's `TestCase`: `lastResult(test)` (the last result or `undefined`), `countedOutcome(test)` (`test.outcome()`, with `"interrupted"` for `skipped` tests whose last result was interrupted), `finishedTests(tests)` (a generator of `{ test, result }` for tests that have a last result) and the `Outcome` / `CountedOutcome` types.
 - `src/failure.ts` — error message extraction with fallbacks, error titles, the failing-step chain and the failure details HTML.
 - `src/attachments.ts` — attachment kinds (screenshots, videos), the artifact URL, the file naming for the uploads and `uploadAttachments(core, kinds, tests)`, which uploads each enabled kind through `core.uploadArtifact`, warns once when an upload throws and returns the links by label.
@@ -105,7 +105,7 @@ Biome (`biome.json`) is strict and enforced via `task lint` and the lint-staged 
 - TypeScript (`tsconfig.json`) is strict with `noUncheckedIndexedAccess` and `verbatimModuleSyntax`. Internal imports must include the `.ts` extension (e.g. `from "./reporter.ts"`) — required by `allowImportingTsExtensions`.
 - Use `import type` / `export type` for type-only symbols (`useImportType`, `useExportType`).
 - No `any` (`noExplicitAny`), no non-null assertions (`noNonNullAssertion`), no implicit-boolean coercion in conditionals (`noImplicitBoolean` — use explicit `> 0`, `!== undefined`, or `!!x` as in `playwright.config.ts`).
-- No `Array.prototype.forEach` (`noForEach`) — use `for...of` or iterator chains; see the `dataRows` getter in `src/reporter.ts`.
+- No `Array.prototype.forEach` (`noForEach`) — use `for...of` or iterator chains; see `collectDetailedResults` in `src/reporter.ts`.
 - Class fields should be `readonly` where they aren't reassigned (`useReadonlyClassProperties`).
 - No import cycles (`noImportCycles`).
 - Naming follows Biome defaults: `camelCase` for variables/methods/properties, `PascalCase` for classes/types/interfaces. Don't introduce `SCREAMING_SNAKE_CASE` constants.
