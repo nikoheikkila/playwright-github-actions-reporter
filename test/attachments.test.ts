@@ -128,6 +128,8 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 		test("logs one info line per successfully uploaded artifact kind", async () => {
 			setRunEnvironment();
+			const ids: Record<string, number> = { "playwright-screenshots": 7, "playwright-videos": 8 };
+			core = new FakeCore({ uploadArtifact: async (name) => ({ id: ids[name] ?? 0 }) });
 			reporter = new GitHubReporter(core, { screenshots: true, videos: true });
 
 			await runTestCases(
@@ -148,9 +150,53 @@ describe("Playwright GitHub Actions Reporter", () => {
 			);
 
 			expect(core.infos.filter((line) => line.startsWith("Uploaded "))).toStrictEqual([
-				"Uploaded playwright-screenshots artifact: ID 42, 1 file(s)",
-				"Uploaded playwright-videos artifact: ID 42, 1 file(s)",
+				"Uploaded playwright-screenshots artifact: ID 7, 1 file(s)",
+				"Uploaded playwright-videos artifact: ID 8, 1 file(s)",
 			]);
+		});
+
+		test("logs no upload info line when uploadArtifact throws", async () => {
+			setRunEnvironment();
+			core.setUploadArtifactThrow(new Error("Upload failed: network error"));
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			await runTestCases(
+				createStubTestCase({
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			expect(core.infos.filter((line) => line.startsWith("Uploaded "))).toStrictEqual([]);
+			expect(core.warningAnnotations).toHaveLength(1);
+		});
+
+		test("still logs the upload info line and warns once when the run environment is missing", async () => {
+			setRunEnvironment();
+			delete process.env.GITHUB_RUN_ID;
+			reporter = new GitHubReporter(core, { screenshots: true });
+
+			await runTestCases(
+				createStubTestCase({
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [createStubAttachment()],
+						}),
+					],
+				}),
+			);
+
+			expect(core.infos.filter((line) => line.startsWith("Uploaded "))).toStrictEqual([
+				"Uploaded playwright-screenshots artifact: ID 42, 1 file(s)",
+			]);
+			expect(core.warningAnnotations).toHaveLength(1);
 		});
 
 		test("gives several videos of one failing test unique file names", async () => {

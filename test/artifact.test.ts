@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -61,10 +61,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 describe("createArtifactUploader", () => {
 	preserveEnv("ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL", "TMPDIR");
-
-	afterEach(() => {
-		mock.restore();
-	});
 
 	beforeEach(() => {
 		process.env.ACTIONS_RUNTIME_TOKEN = "token";
