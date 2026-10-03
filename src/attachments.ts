@@ -1,5 +1,5 @@
 import type { TestCase } from "@playwright/test/reporter";
-import type { ArtifactFile } from "./interface.ts";
+import type { ArtifactFile, Core } from "./interface.ts";
 import { lastResult } from "./testCase.ts";
 
 /** Each kind of failure attachment the reporter can upload as one artifact and link from the Failures section. */
@@ -49,3 +49,34 @@ export const attachmentFiles = (tests: TestCase[], kind: AttachmentKind): Artifa
 		const suffix = (index: number) => (paths.length === 1 ? "" : `-${index}`);
 		return paths.map((path, index) => ({ name: `${test.id}${suffix(index)}.${kind.extension}`, path }));
 	});
+
+/** Resolves to `undefined` after a warning, so a failed upload never hides the Failures section. */
+const uploadLink = async (core: Core, kind: AttachmentKind, files: ArtifactFile[]): Promise<string | undefined> => {
+	try {
+		const url = artifactUrl((await core.uploadArtifact(kind.artifact, files)).id);
+		if (url === undefined) {
+			core.warning(`GitHub run environment is missing, so the summary does not link to ${kind.label.toLowerCase()}.`);
+		}
+		return url;
+	} catch (error) {
+		core.warning(error instanceof Error ? error.message : String(error));
+		return undefined;
+	}
+};
+
+/** Resolves to artifact URLs keyed by link label, in upload order. */
+export const uploadAttachments = async (
+	core: Core,
+	kinds: readonly AttachmentKind[],
+	tests: TestCase[],
+): Promise<ReadonlyMap<string, string>> => {
+	const links = new Map<string, string>();
+	for (const kind of kinds) {
+		const files = attachmentFiles(tests, kind);
+		const url = files.length > 0 ? await uploadLink(core, kind, files) : undefined;
+		if (url !== undefined) {
+			links.set(kind.label, url);
+		}
+	}
+	return links;
+};

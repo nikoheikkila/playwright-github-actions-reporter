@@ -10,8 +10,7 @@ import type {
 	TestResult,
 	WorkerInfo,
 } from "@playwright/test/reporter";
-import type { AttachmentKind } from "./attachments.ts";
-import { artifactUrl, attachmentFiles, attachmentKinds } from "./attachments.ts";
+import { attachmentKinds, uploadAttachments } from "./attachments.ts";
 import type { RecordedError } from "./failure.ts";
 import { errorMessage, errorMessages, errorTitle, failureDetails } from "./failure.ts";
 import { attributeEscape, inlineHtml, preformattedHtml } from "./html.ts";
@@ -91,7 +90,11 @@ export class GitHubReporter implements Reporter {
 
 		if (runCounts.failed > 0) {
 			// Awaited first so the artifact links render under the Failures heading.
-			const links = await this.uploadAttachments();
+			const links = await uploadAttachments(
+				this.core,
+				attachmentKinds.filter(({ option }) => this.options[option] === true),
+				this.unexpectedTests(),
+			);
 			this.collectFailureDetails(links);
 		}
 
@@ -111,45 +114,6 @@ export class GitHubReporter implements Reporter {
 			this.core.setFailed("Test run failed. See the job summary for detailed information.");
 		} else if (this.recordedErrors.length > 0) {
 			this.core.setFailed("Errors outside tests detected. See the job summary for details.");
-		}
-	}
-
-	/** Resolves to artifact URLs keyed by link label, in upload order. */
-	private async uploadAttachments(): Promise<ReadonlyMap<string, string>> {
-		const links = new Map<string, string>();
-		for (const kind of attachmentKinds.filter(({ option }) => this.options[option] === true)) {
-			const url = await this.uploadArtifactLink(kind);
-			if (url !== undefined) {
-				links.set(kind.label, url);
-			}
-		}
-		return links;
-	}
-
-	private async uploadArtifactLink(kind: AttachmentKind): Promise<string | undefined> {
-		const artifact = await this.uploadArtifact(kind);
-		if (artifact === undefined) {
-			return undefined;
-		}
-		const plural = kind.label.toLowerCase();
-		const url = artifactUrl(artifact.id);
-		if (url === undefined) {
-			this.core.warning(`GitHub run environment is missing, so the summary does not link to ${plural}.`);
-		}
-		return url;
-	}
-
-	/** Resolves to `undefined` when there is nothing to upload or the upload throws, so a failed upload never hides the Failures section. */
-	private async uploadArtifact(kind: AttachmentKind): Promise<{ id: number } | undefined> {
-		const files = attachmentFiles(this.unexpectedTests(), kind);
-		if (files.length === 0) {
-			return undefined;
-		}
-		try {
-			return await this.core.uploadArtifact(kind.artifact, files);
-		} catch (error) {
-			this.core.warning(error instanceof Error ? error.message : String(error));
-			return undefined;
 		}
 	}
 

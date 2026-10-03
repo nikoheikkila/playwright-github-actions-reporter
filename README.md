@@ -270,7 +270,7 @@ src/
   html.ts                 # HTML escaping helpers (inlineHtml / preformattedHtml)
   outcome.ts              # Outcome counts, status labels and per-test row values
   failure.ts              # Error messages, failing-step chain and failure details HTML
-  attachments.ts          # Attachment kinds, artifact URL and upload file naming
+  attachments.ts          # Attachment kinds, artifact URL, upload file naming and uploadAttachments
   interface.ts            # Core / Summary / AnnotationProperties abstractions
   artifact.ts             # Screenshot artifact upload via @actions/artifact
   filenames.ts            # Artifact file name and path helpers

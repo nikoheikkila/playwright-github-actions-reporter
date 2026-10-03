@@ -97,6 +97,7 @@ export class FakeCore implements Core {
 
 	private debugEnabled = false;
 	private uploadError: Error | undefined;
+	private uploadErrorArtifact: string | undefined;
 
 	constructor() {
 		this.summary = new FakeSummary();
@@ -131,14 +132,15 @@ export class FakeCore implements Core {
 		this.errorAnnotations.push({ message, properties });
 	}
 
-	public setUploadArtifactThrow(error: Error): void {
+	public setUploadArtifactThrow(error: Error, artifact?: string): void {
 		this.uploadError = error;
+		this.uploadErrorArtifact = artifact;
 	}
 
 	public async uploadArtifact(name: string, files: ArtifactFile[]): Promise<{ id: number }> {
 		this.uploadedArtifacts.push({ name, files });
 
-		if (this.uploadError !== undefined) {
+		if (this.uploadError !== undefined && (this.uploadErrorArtifact ?? name) === name) {
 			throw this.uploadError;
 		}
 
