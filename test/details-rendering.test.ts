@@ -138,13 +138,14 @@ describe("Playwright GitHub Actions Reporter", () => {
 							return [
 								createStubTestCase({
 									tags: [],
+									results: [createStubTestResult({ retry: 1 })],
 								}),
 							];
 						},
 					}),
 				});
 
-				expect(summary).toMatch(/<td>None<\/td>/);
+				expect(summary).toContain("<td>1</td><td>None</td></tr>");
 			});
 
 			test("populated tags are displayed as is", async () => {

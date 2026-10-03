@@ -42,7 +42,11 @@ async function cleanupStagingDir(stagingDir: string | undefined): Promise<void> 
 		return;
 	}
 	try {
-		await rm(stagingDir, { recursive: true, force: true });
+		await rm(stagingDir, {
+			recursive: true,
+			// Stryker disable next-line BooleanLiteral: force only silences a missing path, which the catch below swallows anyway
+			force: true,
+		});
 	} catch {
 		// A leftover temp directory must not turn a successful upload into a failure
 	}

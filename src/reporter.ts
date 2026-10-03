@@ -35,7 +35,9 @@ export class GitHubReporter implements Reporter {
 
 	private files = 0;
 	private tests: TestCase[] = [];
+	// Stryker disable next-line BooleanLiteral: always overwritten in onBegin before it is read
 	private failOnFlakyTests = false;
+	// Stryker disable next-line StringLiteral: always overwritten in onBegin before it is read
 	private workspace = "";
 
 	constructor(core: Core, options: GitHubReporterOptions = {}) {

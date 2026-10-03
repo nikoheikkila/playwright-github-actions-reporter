@@ -11,7 +11,7 @@ const lineBreaks = /\r\n|\r|\n/g;
 export const escapeHtml = (text: string): string =>
 	text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-export const inlineHtml = (text: string): string => escapeHtml(text).replaceAll(/\s*[\r\n]+\s*/g, " ");
+export const inlineHtml = (text: string): string => escapeHtml(text).replaceAll(/\s*[\r\n]\s*/g, " ");
 
 export const preformattedHtml = ({ message, snippet }: ErrorMessage): string =>
 	(snippet === undefined ? [message] : [message, snippet])
