@@ -53,7 +53,9 @@ export const attachmentFiles = (tests: TestCase[], kind: AttachmentKind): Artifa
 /** Resolves to `undefined` after a warning, so a failed upload never hides the Failures section. */
 const uploadLink = async (core: Core, kind: AttachmentKind, files: ArtifactFile[]): Promise<string | undefined> => {
 	try {
-		const url = artifactUrl((await core.uploadArtifact(kind.artifact, files)).id);
+		const { id } = await core.uploadArtifact(kind.artifact, files);
+		core.info(`Uploaded ${kind.artifact} artifact: ID ${id}, ${files.length} file(s)`);
+		const url = artifactUrl(id);
 		if (url === undefined) {
 			core.warning(`GitHub run environment is missing, so the summary does not link to ${kind.label.toLowerCase()}.`);
 		}

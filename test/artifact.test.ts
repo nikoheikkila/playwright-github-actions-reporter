@@ -4,23 +4,13 @@ import { mkdir, readFile, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { DefaultArtifactClient } from "@actions/artifact";
-import type { TestResult } from "@playwright/test/reporter";
-import Reporter from "../index.ts";
 import { createArtifactUploader } from "../src/artifact.ts";
 import { GitHubReporter } from "../src/reporter.ts";
 import { preserveEnv } from "./env.ts";
 import { FakeCore } from "./fakes.ts";
 import { createRunners } from "./harness.ts";
-import { silenceInfo, silenceWarnings, withSourceFiles } from "./helpers.ts";
-import {
-	createStubAttachment,
-	createStubConfig,
-	createStubFullResult,
-	createStubSuite,
-	createStubTestCase,
-	createStubTestError,
-	createStubTestResult,
-} from "./stubs.ts";
+import { withSourceFiles } from "./helpers.ts";
+import { createStubAttachment, createStubTestCase, createStubTestError, createStubTestResult } from "./stubs.ts";
 
 describe("Playwright GitHub Actions Reporter", () => {
 	preserveEnv("GITHUB_WORKSPACE");
@@ -40,26 +30,10 @@ describe("Playwright GitHub Actions Reporter", () => {
 
 	describe("Artifact upload outside GitHub Actions", () => {
 		preserveEnv("ACTIONS_RUNTIME_TOKEN", "ACTIONS_RESULTS_URL");
-		const originalWrite = process.stdout.write;
-		let output: string;
-
-		beforeEach(() => {
-			output = "";
-			process.stdout.write = ((chunk: string | Uint8Array) => {
-				output += String(chunk);
-				return true;
-			}) as typeof process.stdout.write;
-		});
-
-		afterEach(() => {
-			process.stdout.write = originalWrite;
-		});
-
 		test("warns exactly once when the Actions runtime variables are missing", async () => {
 			delete process.env.ACTIONS_RUNTIME_TOKEN;
 			delete process.env.ACTIONS_RESULTS_URL;
-			const upload = createArtifactUploader();
-			core.uploadArtifact = (name, files) => upload(name, files);
+			core = new FakeCore({ uploadArtifact: createArtifactUploader() });
 			reporter = new GitHubReporter(core, { screenshots: true });
 			const testCase = createStubTestCase({
 				results: [
@@ -81,16 +55,6 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(core.isFailed).toBe(false);
 			expect(summary).not.toContain("Screenshots</a>");
 			expect(summary).not.toContain("undefined");
-
-			output = "";
-			const defaultReporter = new Reporter({ screenshots: true });
-			defaultReporter.onBegin(createStubConfig(), createStubSuite({ allTests: () => [testCase] }));
-			defaultReporter.onTestEnd(testCase, testCase.results[0] as TestResult);
-			await defaultReporter.onEnd(createStubFullResult());
-
-			expect(output.split("::warning::").length - 1).toBe(1);
-			expect(output).toContain("::warning::Artifact upload skipped: the Actions runtime variables");
-			expect(output).not.toContain("Skipping artifact upload");
 		});
 	});
 });
@@ -105,7 +69,6 @@ describe("createArtifactUploader", () => {
 	beforeEach(() => {
 		process.env.ACTIONS_RUNTIME_TOKEN = "token";
 		process.env.ACTIONS_RESULTS_URL = "https://results.example";
-		silenceInfo();
 	});
 
 	const createClient = (behaviour: () => Promise<{ id?: number }>) => {
@@ -120,7 +83,6 @@ describe("createArtifactUploader", () => {
 	};
 
 	test("throws instead of warning when the client throws", async () => {
-		const warning = silenceWarnings();
 		const { client } = createClient(async () => {
 			throw new Error("boom");
 		});
@@ -128,7 +90,6 @@ describe("createArtifactUploader", () => {
 		const upload = createArtifactUploader(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
 
 		await expect(upload).rejects.toThrow("boom");
-		expect(warning).not.toHaveBeenCalled();
 	});
 
 	test.each([
@@ -137,14 +98,12 @@ describe("createArtifactUploader", () => {
 	])("throws and skips the client when %s is missing", async (missing, present) => {
 		process.env[present] = "value";
 		delete process.env[missing];
-		const warning = silenceWarnings();
 		const { client, calls } = createClient(async () => ({ id: 1 }));
 
 		const upload = createArtifactUploader(client)("shots", [{ name: "a", path: "/tmp/a/1.png" }]);
 
 		await expect(upload).rejects.toThrow(Error);
 		expect(calls).toHaveLength(0);
-		expect(warning).not.toHaveBeenCalled();
 	});
 
 	test("uploads with the common ancestor of all file paths as root directory", async () => {
@@ -190,7 +149,6 @@ describe("createArtifactUploader", () => {
 				throw new Error("upload failed");
 			},
 		} as unknown as DefaultArtifactClient;
-		silenceWarnings();
 
 		await withSourceFiles({ "1.png": "image-bytes" }, async (source) => {
 			const upload = createArtifactUploader(client);

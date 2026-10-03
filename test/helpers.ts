@@ -1,8 +1,6 @@
-import { type Mock, spyOn } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import * as coreModule from "@actions/core";
 
 /** Returns the part of the summary from the heading to the end, or "" if the heading is missing. */
 export function section(summary: string, heading: string): string {
@@ -27,14 +25,4 @@ export async function withSourceFiles<T>(
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
-}
-
-/** Replaces `core.warning` with a spy that does nothing and returns the spy. */
-export function silenceWarnings(): Mock<typeof coreModule.warning> {
-	return spyOn(coreModule, "warning").mockImplementation(() => undefined);
-}
-
-/** Replaces `core.info` with a spy that does nothing and returns the spy. */
-export function silenceInfo(): Mock<typeof coreModule.info> {
-	return spyOn(coreModule, "info").mockImplementation(() => undefined);
 }

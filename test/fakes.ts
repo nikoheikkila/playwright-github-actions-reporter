@@ -98,9 +98,11 @@ export class FakeCore implements Core {
 	private debugEnabled = false;
 	private uploadError: Error | undefined;
 	private uploadErrorArtifact: string | undefined;
+	private readonly uploader: Core["uploadArtifact"];
 
-	constructor() {
+	constructor({ uploadArtifact = async () => ({ id: 42 }) }: { uploadArtifact?: Core["uploadArtifact"] } = {}) {
 		this.summary = new FakeSummary();
+		this.uploader = uploadArtifact;
 	}
 
 	public debug(message: string): void {
@@ -144,7 +146,7 @@ export class FakeCore implements Core {
 			throw this.uploadError;
 		}
 
-		return { id: 42 };
+		return this.uploader(name, files);
 	}
 
 	public setFailed(message: string): void {

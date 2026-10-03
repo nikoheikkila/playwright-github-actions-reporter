@@ -126,6 +126,33 @@ describe("Playwright GitHub Actions Reporter", () => {
 			expect(summary.split(link)).toHaveLength(2);
 		});
 
+		test("logs one info line per successfully uploaded artifact kind", async () => {
+			setRunEnvironment();
+			reporter = new GitHubReporter(core, { screenshots: true, videos: true });
+
+			await runTestCases(
+				createStubTestCase({
+					id: "a1",
+					title: "fails with media",
+					results: [
+						createStubTestResult({
+							status: "failed",
+							errors: [createStubTestError()],
+							attachments: [
+								createStubAttachment({ path: "/tmp/a1/shot.png" }),
+								createStubAttachment({ name: "video", path: "/tmp/a1/video.webm", contentType: "video/webm" }),
+							],
+						}),
+					],
+				}),
+			);
+
+			expect(core.infos.filter((line) => line.startsWith("Uploaded "))).toStrictEqual([
+				"Uploaded playwright-screenshots artifact: ID 42, 1 file(s)",
+				"Uploaded playwright-videos artifact: ID 42, 1 file(s)",
+			]);
+		});
+
 		test("gives several videos of one failing test unique file names", async () => {
 			reporter = new GitHubReporter(core, { videos: true });
 

@@ -2,7 +2,6 @@ import { access, lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { DefaultArtifactClient } from "@actions/artifact";
-import * as coreModule from "@actions/core";
 import { assertSafeFileNames, commonAncestorPath } from "./filenames.ts";
 import type { ArtifactFile, Core } from "./interface.ts";
 
@@ -77,7 +76,6 @@ async function performUpload(client: DefaultArtifactClient, name: string, upload
 	if (response.id === undefined) {
 		throw new Error("Artifact upload returned no ID");
 	}
-	coreModule.info(`Uploaded ${name} artifact: ID ${response.id}, ${upload.filePaths.length} file(s)`);
 	return { id: response.id };
 }
 
