@@ -18,9 +18,12 @@ This project is a custom Playwright reporter that renders the run as a GitHub Ac
 - `src/attachments.ts` — attachment kinds (screenshots, videos), the artifact URL, the file naming for the uploads and `uploadAttachments(core, kinds, tests)`, which uploads each enabled kind through `core.uploadArtifact`, logs an "Uploaded" line via `core.info` per successful upload, warns once when an upload throws and returns the links by label.
 - `src/artifact.ts` — `createArtifactUploader`, the production `core.uploadArtifact`: checks the runtime variables, file names and file types, stages renamed files in a temp directory and uploads them with `@actions/artifact` (used for both screenshots and videos). `src/filenames.ts` holds the file name and path helpers it uses.
 - `src/interface.ts` — minimal `Core` / `Summary` / `SummaryTableRow` / `AnnotationProperties` types mirroring the subset of `@actions/core` we use. Production code depends on these abstractions, not on `@actions/core` directly, so tests can substitute fakes.
-- `test/` — `bun:test` unit tests with `FakeCore` / `FakeSummary` (`test/fakes.ts`) and `createStubX` factories for Playwright fixtures (`test/stubs.ts`). Suites are split by topic: `reporter.test.ts` (Full Report Snapshot only), `summary.test.ts`, `summary-counts.test.ts` (counts and buckets), `summary-flaky.test.ts` (flaky tests failing the run), `options.test.ts` (reporter options), `logging.test.ts` (logs, notice, stdout/stderr, setFailed), `details.test.ts` and `details-rendering.test.ts` (Test details: HTML characters, duration, retries, tags), `annotations.test.ts`, `failures.test.ts` (Failure details), `errors.test.ts` (Errors outside tests), `attachments.test.ts` and `attachments-filtering.test.ts` (Screenshots and videos) and `artifact.test.ts`. `test/harness.ts` holds the shared `count` and `createRunners`, next to `test/helpers.ts` and `test/env.ts`.
+- `test/` — `bun:test` unit tests with `FakeCore` / `FakeSummary` (`test/fakes.ts`) and `createStubX` factories for Playwright fixtures (`test/stubs.ts`). There are two kinds of suite. **Module suites** are named after a `src/` module and test its exported functions directly (`outcome.test.ts`, `failure.test.ts`, `testCase.test.ts`, `filenames.test.ts`, `tableColumns.test.ts`, `uploadAttachments.test.ts`). **Reporter suites** are named after a section of the summary and drive the whole `GitHubReporter` (`summary*.test.ts`, `details*.test.ts`, `failures.test.ts`, `attachments*.test.ts`, `annotations.test.ts`, `errors.test.ts`, `logging.test.ts`, `options.test.ts`, `lifecycle.test.ts`). `artifact.test.ts` covers `createArtifactUploader` and its wiring into the reporter. `reporter.test.ts` holds only the Full Report Snapshot. Run `ls test/` for the current list rather than trusting this one. `test/harness.ts` holds the shared `count` and `createRunners`, next to `test/helpers.ts` and `test/env.ts`.
 - `e2e/` — Playwright suite (`example.spec.ts`) that intentionally contains passing / expected-failure / timing-out / flaky / failing-step / skipped tests; the rendered summary is diffed against `e2e/snapshots/summary.md`.
 - `scripts/diffPlaywrightTypes.ts` — diffs the reporter-facing Playwright type definitions against another version (`task playwright:diff`).
+- `scripts/strykerDiff.ts` — mutates only the production files changed since a base ref (`task mutation:diff`). `stryker.config.mjs` holds the Stryker setup.
+- `scripts/checkDocs.ts` — fails when `AGENTS.md` or `README.md` names a file that doesn't exist (`task docs:check`, part of `task check`).
+- `.claude/settings.json` — Claude Code hooks: Biome after every edit, and the check pipeline when a turn ends.
 
 ### Reporter lifecycle
 
@@ -63,8 +66,10 @@ Run everything through Task — these are what CI runs.
 - `task verify summary=<path>` — Playwright run + `diff` against `e2e/snapshots/summary.md`. The Playwright step has `ignore_error: true` because the e2e suite fails on purpose, so only the `diff` sets the exit code.
 - `task build` — `bun build` bundles `index.ts` into `dist/` (with `@actions/core` and `@playwright/test` kept external), then `tsc -p tsconfig.build.json` emits only the `.d.ts` files. `prepublishOnly` runs this.
 - `task playwright:diff version=<x>` — diff the reporter-facing types of the installed Playwright against version `<x>` (default `latest`). Read-only, nothing is installed.
-- `task mutation` — Stryker mutation run over `src/` (Bun runner with per-test coverage, TypeScript checker). Reports land in `reports/mutation/` (`mutation.html`, `mutation.json`), which is git-ignored. `task mutation:incremental` reuses earlier results; `task mutation:diff base=<ref>` mutates only the production files changed since `<ref>` and needs a clean working tree.
-- `task test:all` — format → lint → typecheck → test → verify → build (full local pipeline)
+- `task mutation` — Stryker mutation run over `src/` (Bun runner with per-test coverage, TypeScript checker). HTML and JSON reports land in `reports/mutation/`, which is git-ignored. `task mutation:incremental` reuses earlier results; `task mutation:diff base=<ref>` mutates only the production files changed since `<ref>` and needs a clean working tree.
+- `task docs:check` — fail when a backticked file path in `AGENTS.md` or `README.md` no longer exists. Bare names such as `summary.test.ts` pass when any tracked file has that name.
+- `task check` — the read-only pipeline: lint → typecheck → docs:check → test → verify → build. The Stop hook runs this.
+- `task test:all` — `format`, then `check` (full local pipeline)
 
 Ad-hoc variants:
 
@@ -72,6 +77,8 @@ Ad-hoc variants:
 - Single test file: `AGENT=1 bun test --parallel test/failures.test.ts`. Single test by name: `AGENT=1 bun test --parallel -t "<name pattern>"`.
 - Update the `bun:test` snapshot (`test/__snapshots__/reporter.test.ts.snap`): `AGENT=1 bun test --parallel --update-snapshots`.
 - Regenerate the e2e snapshot: `task verify summary=e2e/snapshots/summary.md`.
+- Judge a run by its exit code, not by its tail. `task verify | tail` reports the exit code of `tail`, and an empty diff tail also looks like a pass. Use `task verify > /tmp/verify.log 2>&1; echo "exit=$?"; tail -n 20 /tmp/verify.log`.
+- If Task prints `task "<name>" is up to date`, the task did **not** run. Re-run it with `task --force <name>` before you call it green.
 
 ## Bun
 
@@ -109,34 +116,67 @@ Biome (`biome.json`) is strict and enforced via `task lint` and the lint-staged 
 - No `Array.prototype.forEach` (`noForEach`) — use `for...of` or iterator chains; see `collectDetailedResults` in `src/reporter.ts`.
 - Class fields should be `readonly` where they aren't reassigned (`useReadonlyClassProperties`).
 - No import cycles (`noImportCycles`).
-- Naming follows Biome defaults: `camelCase` for variables/methods/properties, `PascalCase` for classes/types/interfaces. Don't introduce `SCREAMING_SNAKE_CASE` constants.
+- Naming follows Biome defaults: `camelCase` for variables/methods/properties, `PascalCase` for classes/types/interfaces. Don't introduce `SCREAMING_SNAKE_CASE` constants, and don't add a trailing or leading underscore to dodge a name clash (`test_`, `_result`). Biome doesn't catch these, but review does. Choose a descriptive name instead (`testCase`).
+- Don't add a constant that only re-assigns another binding (`export const outcome = countedOutcome`). When you move or rename something, migrate the callers.
+- Prefer plain types and named interfaces over stacked utility types (`Omit<Partial<T>, "x"> & { x?: never }`). If a type needs a guard, first try changing the code: the spread order, or a narrower parameter.
 
 ## Testing
 
 - Unit tests run via `task test` and live under `test/` (configured in `bunfig.toml`: `root = "test"`, coverage excludes test files themselves).
 - Use `bun:test` primitives (`describe`, `test`, `beforeEach`, `expect`, `test.each`). Don't import Jest or Vitest.
 - Reuse `FakeCore` / `FakeSummary` for the reporter under test. `FakeCore` records annotations together with their properties. Like the real `@actions/core`, `FakeCore.setFailed` does not throw. It sets `isFailed = true` and records the message in `core.failures`. Unlike the real one, it does not also emit an error annotation, so `core.errors` holds only annotations the reporter raised itself. Extend the `createStubX` factories in `test/stubs.ts` (`Config`, `Project`, `WorkerInfo`, `Suite`, `TestCase`, `TestResult`, `TestStep`, `TestError`, `FullResult`) rather than hand-rolling Playwright objects inline.
-- Tests that depend on `GITHUB_WORKSPACE` must set it and restore it themselves.
+- Tests that depend on `GITHUB_WORKSPACE` or the Actions runtime variables must set and restore them. Use `preserveEnv(...keys)` from `test/env.ts` inside a `describe` (it snapshots the values when called and registers an `afterEach`), and use `setRunEnvironment` for the run variables.
+- Bun keys snapshots by the full `describe` / `test` name path. Keep the "Playwright GitHub Actions Reporter" › "Full Report Snapshot" names when moving tests between files, or `test/__snapshots__/reporter.test.ts.snap` is rewritten.
+- Don't write tests for code that only runs in tests (`test/env.ts`, `test/helpers.ts`, `test/harness.ts`, `test/stubs.ts`, `test/fakes.ts`). The suites that use them cover them.
+- No unit test imports `index.ts`. Its wiring of `@actions/core` is covered only by `task typecheck` and `task verify`, so run both after you touch it.
 - Cover the fallback branches as well as the happy path. An error annotation that read "✅ Passed" got through 62 green tests because every failing fixture had a populated `errors` array.
 - For end-to-end coverage, `task verify summary=test-results/summary.md` runs the Playwright suite with this reporter and `diff`s the produced summary against `e2e/snapshots/summary.md`. If your change intentionally alters the rendered output, update the snapshot in the same commit. After regenerating it, run `task verify summary=test-results/summary.md` again to confirm the output is deterministic.
 - Locally (no `CI` env var) the Playwright config wires `e2e/createStepSummary.ts` as `globalSetup` to create the summary file at `$GITHUB_STEP_SUMMARY`. In CI, GitHub Actions provides that variable natively, so `globalSetup` is skipped.
+- `task verify` deletes the Screenshots and Videos link lines before diffing, because they hold run and artifact ids. A green verify doesn't prove a link renders. The CI step "Verify screenshot and video artifacts were uploaded" checks the upload, and only a real Actions run can show the link.
+
+### Mutation testing
+
+`src/` is at a 100% mutation score (363 mutants killed). Keep it there: after changing production code, run `task mutation:incremental`, or `task mutation:diff` once the work is committed, and kill or classify every survivor before you open the PR.
+
+- The runner is the community `@hughescr/stryker-bun-runner`, the only Bun option. It and `@stryker-mutator/*` are pinned to exact versions. Upgrade them together and smoke-run one file first: `bunx stryker run --mutate src/html.ts`.
+- `AGENT=1` is deliberately not set for Stryker. The runner reads results over the inspector protocol, not from the test output.
+- `CompileError` mutants are ones the TypeScript checker rejected. They are not survivors, so ignore them in the score.
+- Mark an equivalent mutant with `// Stryker disable next-line <Mutator>: <why no input can tell the difference>` on the line directly above it, naming the single mutator (see `src/reporter.ts` and `src/artifact.ts`). A bare `disable next-line` or a block-level disable also hides real mutants on the same line.
+- Read survivors from `reports/mutation/mutation.json` or the HTML report. Don't re-run Stryker just to see its output again.
 
 ## Changing the reporter: minimum context
 
 Almost every change to `src/reporter.ts` touches the same set of files. Load all of them up front, including when you hand work to a subagent:
 
 - `src/reporter.ts`, `src/html.ts` (if escaping changes), `src/outcome.ts` / `src/failure.ts` / `src/attachments.ts` (if counts, failure details or attachments change), `src/interface.ts` (if the `Core`/`Summary` surface changes), `index.ts` (if constructor or exports change)
-- the test files for the area you change (`test/reporter.test.ts`, `summary.test.ts`, `summary-counts.test.ts`, `summary-flaky.test.ts`, `options.test.ts`, `logging.test.ts`, `details.test.ts`, `details-rendering.test.ts`, `annotations.test.ts`, `failures.test.ts`, `errors.test.ts`, `attachments.test.ts`, `attachments-filtering.test.ts`, `artifact.test.ts`), plus `test/harness.ts`, `test/helpers.ts`, `test/env.ts`, `test/fakes.ts`, `test/stubs.ts`
+- the module suite named after each `src/` file you change, plus the reporter suites for the summary sections it renders (`grep -l <symbol> test/*.test.ts` finds them), plus `test/harness.ts`, `test/helpers.ts`, `test/env.ts`, `test/fakes.ts`, `test/stubs.ts`
 - `test/__snapshots__/reporter.test.ts.snap` and `e2e/snapshots/summary.md`: any rendering change moves one or both
 - `e2e/example.spec.ts` when the change needs a real Playwright scenario
-- `README.md` (Overview / Features / options) and the "Reporter lifecycle" section above when behaviour changes
+- `README.md` (Overview / Features / options / Project layout) and the "Structure" and "Reporter lifecycle" sections above when behaviour or file layout changes
 
 Before you commit, run the review gate on the **staged** diff. Only the coordinating agent commits, after the gate passes. An implementation agent that commits on its own skips the gate.
+
+## Working on an issue
+
+Issues here are written ahead of time and go stale quickly. Earlier fixes often do part of the work, and line numbers and commit hashes drift.
+
+1. **Check the issue against `HEAD` before planning.** For each item, `grep` the named symbol (ignore line numbers) and run `git log --oneline --grep "#<n>"`. Report items that are already done, with the commit that did them, instead of re-implementing them. If the issue depends on another open issue, say which one and keep to this issue's scope.
+2. **Standing answers.** The orchestrator asked the same questions in every session, and the user gave the same answers each time. Apply these without asking:
+   - A behaviour-preserving refactor has no Red step. The existing suite and the 100% mutation score are the safety net. If the refactor touches code no test exercises, first add a test that pins the current behaviour.
+   - A bug you find along the way is in scope, but fix it in its own commit.
+   - Run any project command (`task test:all`, `task verify`, `task mutation`) without asking.
+   - Accept the recommended default for anything else that has one. List the defaults you applied in the hand-off.
+3. **Sweep the docs.** After renaming, moving or deleting a symbol or file, `grep -n` the old name in `AGENTS.md` and `README.md`, then run `task docs:check`. Stale docs were the most common review advisory.
+4. **Fix the cheap advisories before committing.** The review gate passes with advisory findings. Fix doc drift, dead code and missing tests for stated behaviour in the same change, then re-run the gate in delta mode. Put the rest in the PR description or a new issue.
+5. **Commit.** Once the gate passes, commit without asking, using a Conventional Commit message, with `Fixes #<n>` in the body and the exact `Co-Authored-By` trailer from the system prompt. The user pushes, unless they ask you to.
 
 To upgrade Playwright, follow the `upgrade-playwright` skill in `.claude/skills/`.
 
 ## Pre-commit and CI
 
 - `.husky/pre-commit` runs `bunx lint-staged` (Biome write on staged JS/TS/JSON) followed by `task test`. Don't bypass with `--no-verify`; if a hook fails, fix the underlying issue.
-- `.github/workflows/ci.yml` runs `task lint`, `task typecheck`, `task test`, then `task verify` against the runner-provided `$GITHUB_STEP_SUMMARY`. A parallel `mutation` job runs `task mutation` and uploads `reports/mutation/` as the `mutation-report` artifact. It has no score threshold yet, so it fails only when Stryker itself fails. Release Please waits for both jobs. Keep these green before opening a PR.
+- `.github/workflows/ci.yml` runs `task lint`, `task typecheck`, `task docs:check`, `task test`, then `task verify` against the runner-provided `$GITHUB_STEP_SUMMARY`. A parallel `mutation` job runs `task mutation` and uploads `reports/mutation/` as the `mutation-report` artifact. It has no score threshold yet, so it fails only when Stryker itself fails. Release Please waits for both jobs. Keep these green before opening a PR.
+- A green `task verify` step still shows `::error` and `::warning` annotations (timed out test, failing step test, flaky test). The e2e suite produces them on purpose. They are not failures.
+- To watch a run after a push, the run may take a few seconds to register. Find it with `gh run list --commit "$(git rev-parse HEAD)" --json databaseId --jq '.[0].databaseId'` in a Monitor until-loop, then follow it with `gh run watch <id> --exit-status` as a background command. Foreground `sleep` is blocked.
+- Claude Code hooks (`.claude/settings.json`): after each Edit or Write, Biome checks the edited file, and a failure is fed back to the agent. When a turn ends with a dirty working tree, `task check` runs. A Stop-hook failure while a TDD subagent is still mid-cycle (a Red test, a half-written stub) is expected. Don't fix it from the coordinating agent; wait for the cycle to finish.
 - Releases come from Release Please: on pushes to `main`, it opens or updates a release PR based on Conventional Commit messages (`feat:`, `fix:`, `chore:`, `docs:` …). Merging that PR tags the release and runs `npm publish --provenance`. Use Conventional Commit messages. Don't bump `version` in `package.json` or edit `CHANGELOG.md` by hand.

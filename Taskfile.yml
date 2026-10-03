@@ -22,18 +22,11 @@ tasks:
       AGENT: "1"
     cmd: bun test --parallel --watch
 
+  # No `sources` on lint or format: Task skipped them as "up to date", so a run looked green without linting anything.
   lint:
-    sources: &typescript-sources
-      - ./index.ts
-      - ./playwright.config.ts
-      - ./src/**/*.ts
-      - ./test/**/*.ts
-      - ./e2e/**/*.ts
-      - ./scripts/**/*.ts
     cmd: bunx biome check .
 
   format:
-    sources: *typescript-sources
     cmd: bunx biome check --write .
 
   typecheck:
@@ -79,17 +72,28 @@ tasks:
     desc: Mutation-test the production files changed since a base branch (default origin/HEAD)
     cmd: bun scripts/strykerDiff.ts {{ .base }}
 
+  docs:check:
+    desc: Fail when AGENTS.md or README.md names a file that does not exist
+    cmd: bun scripts/checkDocs.ts
+
   playwright:diff:
     desc: Diff reporter-facing Playwright types between the installed and a target version (default latest)
     cmd: bun scripts/diffPlaywrightTypes.ts {{ .version | default "latest" }}
 
-  test:all:
+  check:
+    desc: Read-only pipeline (lint, typecheck, docs, unit tests, e2e verify, build); the Stop hook runs this
     cmds:
-      - task: format
       - task: lint
       - task: typecheck
+      - task: docs:check
       - task: test
       - task: verify
         vars:
           summary: test-results/summary.md
       - task: build
+
+  test:all:
+    desc: Format, then run the read-only check pipeline
+    cmds:
+      - task: format
+      - task: check

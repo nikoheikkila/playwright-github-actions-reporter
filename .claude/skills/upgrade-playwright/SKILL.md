@@ -49,8 +49,11 @@ task test:all
 
 A plain upgrade must leave `test/__snapshots__/reporter.test.ts.snap` and `e2e/snapshots/summary.md` untouched. If either changes, stop and find out why before you continue.
 
+Then run `task mutation:incremental`. An upgrade that changes a type the reporter narrows can turn a killed mutant into a `CompileError` or a survivor, and the 100% score should hold. If the upgrade also bumps TypeScript or `@types/bun`, keep `"types": ["bun"]` in `tsconfig.json`: TypeScript 6 no longer loads `@types/*` automatically, and `bun test` won't notice.
+
 ## 6. Plan the adopted features one commit each
 
 - One Conventional Commit per feature, each with its own unit tests, and snapshots regenerated in the same commit.
 - Before implementing, re-read "Playwright semantics that shaped the code" and "Rendering to the step summary" in `AGENTS.md`.
 - Update the Requirements table in `README.md` whenever the peer floor moves.
+- An adopted feature that `GitHubReporterOptions` exposes needs a row in the README options table and a case in `test/options.test.ts`.

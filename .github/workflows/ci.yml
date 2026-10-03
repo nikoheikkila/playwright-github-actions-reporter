@@ -30,6 +30,9 @@ jobs:
       - name: Type check
         run: task typecheck
 
+      - name: Check file paths in docs
+        run: task docs:check
+
       - name: Run unit tests
         run: task test
 

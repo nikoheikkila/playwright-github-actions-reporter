@@ -230,8 +230,19 @@ task format
 # Run the full e2e suite and diff output against the snapshot
 task verify summary=test-results/summary.md
 
-# Full local pipeline: format → lint → typecheck → test → verify → build
+# Check that every file named in AGENTS.md and README.md exists
+task docs:check
+
+# Read-only pipeline: lint → typecheck → docs:check → test → verify → build
+task check
+
+# Full local pipeline: format, then check
 task test:all
+
+# Mutation testing with Stryker (report in reports/mutation/)
+task mutation                  # every production file
+task mutation:incremental      # reuse results for unchanged code and tests
+task mutation:diff base=main   # only files changed since main (needs a clean tree)
 
 # See what a newer Playwright changes in the reporter API (read-only)
 task playwright:diff version=latest
@@ -268,16 +279,17 @@ index.ts                  # Production entry point (wires @actions/core)
 src/
   reporter.ts             # GitHubReporter: implements Playwright's Reporter interface
   html.ts                 # HTML escaping helpers (inlineHtml / preformattedHtml)
-  outcome.ts              # Outcome counts, status labels and per-test row values
+  outcome.ts              # Outcome counts, status labels, per-test row values and table columns
+  testCase.ts             # TestCase helpers: lastResult, countedOutcome, finishedTests
   failure.ts              # Error messages, failing-step chain and failure details HTML
   attachments.ts          # Attachment kinds, artifact URL, upload file naming and uploadAttachments
   interface.ts            # Core / Summary / AnnotationProperties abstractions
   artifact.ts             # Artifact upload (screenshots and videos) via @actions/artifact
   filenames.ts            # Artifact file name and path helpers
 test/
-  *.test.ts               # Unit test suites by topic: summary, summary-counts, summary-flaky, options, logging,
-                          # details, details-rendering, annotations, failures, errors,
-                          # attachments, attachments-filtering, artifact (bun:test)
+  <module>.test.ts        # Module suites: one per src/ file, testing its functions directly
+  <section>.test.ts       # Reporter suites: one per summary section (summary, details, failures, ...)
+  reporter.test.ts        # Full report snapshot only
   harness.ts              # Shared count / createRunners
   fakes.ts                # FakeCore / FakeSummary for isolated testing
   stubs.ts                # Factory functions for Playwright fixture objects
@@ -288,6 +300,9 @@ e2e/
     summary.md            # Expected reporter output; diffed in `task verify`
 scripts/
   diffPlaywrightTypes.ts  # Reporter-facing type diff behind `task playwright:diff`
+  strykerDiff.ts          # Mutates only the files changed since a base ref (`task mutation:diff`)
+  checkDocs.ts            # Fails on file paths in the docs that no longer exist (`task docs:check`)
+stryker.config.mjs        # Stryker setup: Bun runner, per-test coverage, TypeScript checker
 ```
 
 ### Snapshot testing
@@ -304,11 +319,21 @@ task verify summary=test-results/summary.md
 
 The summary deliberately leaves out stack traces, because their absolute paths would make the snapshot differ between machines.
 
+### Mutation testing
+
+[Stryker](https://stryker-mutator.io) mutates the production code in `src/` and checks that at least one unit test fails for each change. The suite currently kills every mutant (a 100% score). CI runs `task mutation` in its own job and uploads the HTML report as the `mutation-report` artifact. There is no score threshold yet, so the job fails only when Stryker itself fails.
+
+When no input can tell a mutant apart from the original code (an *equivalent* mutant), it is marked in place with a comment that names the mutator and the reason:
+
+```ts
+// Stryker disable next-line BooleanLiteral: force only silences a missing path, which the catch below swallows anyway
+```
+
 ## Contributing
 
 1. Fork the repository and create a feature branch.
 2. Run `task test:all` to verify everything passes locally.
-3. Open a pull request. CI runs lint, the type check, unit tests, and the e2e snapshot check.
+3. Open a pull request. CI runs lint, the type check, unit tests, the e2e snapshot check and mutation tests.
 
 **Code style** is enforced by [Biome](https://biomejs.dev) via a pre-commit hook. Don't bypass hooks with `--no-verify`; if a hook fails, fix the underlying issue. Key rules:
 
