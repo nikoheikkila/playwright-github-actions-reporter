@@ -1,0 +1,92 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"description": "Library: devDependencies are pinned, runtime and peer ranges stay open for consumers. Every update goes through a PR that the main ruleset gates on the Tests and Mutation Tests checks.",
+	"extends": [
+		"config:best-practices",
+		":pinOnlyDevDependencies",
+		":semanticCommits",
+		":automergeRequireAllStatusChecks",
+		":maintainLockFilesDisabled"
+	],
+	"enabledManagers": ["bun", "github-actions", "custom.regex"],
+	"timezone": "Europe/Helsinki",
+	"schedule": ["before 6am on monday"],
+	"minimumReleaseAge": "14 days",
+	"minimumReleaseAgeBehaviour": "timestamp-required",
+	"internalChecksFilter": "strict",
+	"osvVulnerabilityAlerts": true,
+	"vulnerabilityAlerts": {
+		"enabled": true,
+		"automerge": false,
+		"addLabels": ["security"]
+	},
+	"labels": ["dependencies"],
+	"platformCommit": "enabled",
+	"automergeType": "pr",
+	"automergeStrategy": "squash",
+	"packageRules": [
+		{
+			"description": "Supply-chain cooldown for npm. config:best-practices sets 3 days for the npm datasource in a package rule, which overrides the top-level value, so restate 14 days here. Pins stay exempt: they carry no release timestamp.",
+			"matchDatasources": ["npm"],
+			"matchUpdateTypes": ["major", "minor", "patch"],
+			"minimumReleaseAge": "14 days"
+		},
+		{
+			"description": "Automerge every aged, non-major update once the required checks pass.",
+			"matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
+			"automerge": true
+		},
+		{
+			"description": "Actions run in the publish job, which holds id-token: write for npm provenance: label them so they stand out.",
+			"matchManagers": ["github-actions"],
+			"addLabels": ["deploy-path"]
+		},
+		{
+			"description": "Major updates only after approval on the Dependency Dashboard.",
+			"matchUpdateTypes": ["major"],
+			"dependencyDashboardApproval": true,
+			"automerge": false
+		},
+		{
+			"description": "Raising the @playwright/test peer floor is a breaking change the maintainer decides (see .claude/skills/upgrade-playwright).",
+			"matchDepTypes": ["peerDependencies"],
+			"enabled": false
+		},
+		{
+			"description": "Stryker core, the TypeScript checker and the Bun runner are pinned exactly and must be upgraded together.",
+			"matchPackageNames": ["@stryker-mutator/**", "@hughescr/stryker-bun-runner"],
+			"groupName": "Stryker",
+			"separateMajorMinor": false
+		},
+		{
+			"description": "Playwright upgrades can add required FullConfig fields and new reporter API features.",
+			"matchPackageNames": ["@playwright/test"],
+			"prBodyNotes": [
+				"Follow `.claude/skills/upgrade-playwright/SKILL.md`: run `task playwright:diff version={{{newVersion}}}` to review reporter API additions, and fix `test/stubs.ts` if `task typecheck` fails."
+			]
+		},
+		{
+			"description": "Update the biome.json $schema version together with @biomejs/biome.",
+			"matchPackageNames": ["@biomejs/biome"],
+			"groupName": "Biome"
+		}
+	],
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Track the Biome version in the biome.json $schema URL.",
+			"managerFilePatterns": ["/^biome\\.json$/"],
+			"matchStrings": ["\"https://biomejs\\.dev/schemas/(?<currentValue>[^/]+)/schema\\.json\""],
+			"depNameTemplate": "@biomejs/biome",
+			"datasourceTemplate": "npm"
+		},
+		{
+			"customType": "regex",
+			"description": "Track the Renovate version that task renovate:check validates with.",
+			"managerFilePatterns": ["/^Taskfile\\.yml$/"],
+			"matchStrings": ["bunx --package renovate@(?<currentValue>\\S+) "],
+			"depNameTemplate": "renovate",
+			"datasourceTemplate": "npm"
+		}
+	]
+}

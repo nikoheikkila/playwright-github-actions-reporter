@@ -76,16 +76,23 @@ tasks:
     desc: Fail when AGENTS.md or README.md names a file that does not exist
     cmd: bun scripts/checkDocs.ts
 
+  renovate:check:
+    desc: Validate renovate.json with the official Renovate config validator
+    # No file argument: with one, the validator checks the file as a global (self-hosted) config instead of a repo config.
+    # The version is pinned so a new Renovate release can't fail this check on its own; Renovate bumps it (customManagers).
+    cmd: bunx --package renovate@44.239.0 renovate-config-validator --strict
+
   playwright:diff:
     desc: Diff reporter-facing Playwright types between the installed and a target version (default latest)
     cmd: bun scripts/diffPlaywrightTypes.ts {{ .version | default "latest" }}
 
   check:
-    desc: Read-only pipeline (lint, typecheck, docs, unit tests, e2e verify, build); the Stop hook runs this
+    desc: Read-only pipeline (lint, typecheck, docs, Renovate config, unit tests, e2e verify, build); the Stop hook runs this
     cmds:
       - task: lint
       - task: typecheck
       - task: docs:check
+      - task: renovate:check
       - task: test
       - task: verify
         vars:

@@ -33,6 +33,10 @@ jobs:
       - name: Check file paths in docs
         run: task docs:check
 
+      - name: Validate Renovate config
+        timeout-minutes: 5
+        run: task renovate:check
+
       - name: Run unit tests
         run: task test
 
