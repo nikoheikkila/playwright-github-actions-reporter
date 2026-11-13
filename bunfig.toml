@@ -2,3 +2,8 @@
 root = "test"
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = "test/**/*.ts"
+
+[install]
+# Supply-chain cooldown for every new resolution, transitive dependencies included (Renovate only ages direct ones).
+# Matches minimumReleaseAge in renovate.json. Packages already in bun.lock are unaffected.
+minimumReleaseAge = 1209600 # 14 days in seconds

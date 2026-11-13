@@ -233,7 +233,10 @@ task verify summary=test-results/summary.md
 # Check that every file named in AGENTS.md and README.md exists
 task docs:check
 
-# Read-only pipeline: lint → typecheck → docs:check → test → verify → build
+# Validate renovate.json with the official Renovate config validator
+task renovate:check
+
+# Read-only pipeline: lint → typecheck → docs:check → renovate:check → test → verify → build
 task check
 
 # Full local pipeline: format, then check
@@ -303,6 +306,7 @@ scripts/
   strykerDiff.ts          # Mutates only the files changed since a base ref (`task mutation:diff`)
   checkDocs.ts            # Fails on file paths in the docs that no longer exist (`task docs:check`)
 stryker.config.mjs        # Stryker setup: Bun runner, per-test coverage, TypeScript checker
+renovate.json             # Renovate dependency updates (validated by `task renovate:check`)
 ```
 
 ### Snapshot testing
