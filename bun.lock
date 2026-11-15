@@ -15,9 +15,9 @@
         "@stryker-mutator/core": "10.0.0",
         "@stryker-mutator/typescript-checker": "10.0.0",
         "@types/bun": "latest",
-        "husky": "^9.1.7",
-        "lint-staged": "^16.4.0",
-        "typescript": "^6.0.3",
+        "husky": "9.1.7",
+        "lint-staged": "16.4.0",
+        "typescript": "6.0.3",
       },
       "peerDependencies": {
         "@playwright/test": "^1.63.0",
