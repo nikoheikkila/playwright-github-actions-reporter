@@ -28,7 +28,7 @@
 		"url": "git+https://github.com/nikoheikkila/playwright-github-actions-reporter.git"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.14",
+		"@biomejs/biome": "2.6.8",
 		"@hughescr/stryker-bun-runner": "1.4.0",
 		"@playwright/test": "1.63.0",
 		"@stryker-mutator/core": "10.0.0",
